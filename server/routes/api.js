@@ -237,7 +237,9 @@ router.post('/scrape/trigger', (req, res) => {
 
   const { source = 'all', max_pages = 2 } = req.body || {};
   const projectRoot = path.resolve(__dirname, '../..');
-  const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+  // On the VPS the scraper lives in a virtualenv — point PYTHON_BIN at it.
+  const pythonCmd = process.env.PYTHON_BIN
+    || (process.platform === 'win32' ? 'python' : 'python3');
   const args = ['run_scraper.py', 'fast', '--source', source];
   if (max_pages && parseInt(max_pages, 10) > 0) {
     args.push('--max-pages', max_pages.toString());

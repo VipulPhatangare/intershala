@@ -5,3 +5,4 @@ pandas>=2.2
 streamlit>=1.36
 aiohttp>=3.9
 pymongo>=4.6
+apscheduler>=3.10

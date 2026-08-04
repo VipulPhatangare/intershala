@@ -1,11 +1,15 @@
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
+
 const express = require('express');
 const cors = require('cors');
-const path = require('path');
 const apiRoutes = require('./routes/api');
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = parseInt(process.env.PORT, 10) || 3005;
+const HOST = process.env.HOST || '127.0.0.1';
 
+app.set('trust proxy', 1);
 app.use(cors());
 app.use(express.json());
 
@@ -42,25 +46,21 @@ app.get('*', (req, res, next) => {
   });
 });
 
-let port = process.env.PORT || 5000;
+const server = app.listen(PORT, HOST, () => {
+  console.log(`========================================================`);
+  console.log(`🚀 Internshala MERN Stack Express Backend Running`);
+  console.log(`📡 Listening on http://${HOST}:${PORT}/api`);
+  console.log(`========================================================`);
+});
 
-function startServer(p) {
-  const server = app.listen(p, () => {
-    console.log(`========================================================`);
-    console.log(`🚀 Internshala MERN Stack Express Backend Running`);
-    console.log(`📡 API URL: http://localhost:${p}/api`);
-    console.log(`========================================================`);
-  });
+// Behind a reverse proxy the port is fixed — never silently move to another
+// one, or nginx keeps proxying to a port nothing is listening on.
+server.on('error', (err) => {
+  console.error(`Failed to bind ${HOST}:${PORT} — ${err.message}`);
+  process.exit(1);
+});
 
-  server.on('error', (err) => {
-    if (err.code === 'EADDRINUSE') {
-      console.warn(`Port ${p} is in use, trying port ${p + 1}...`);
-      startServer(p + 1);
-    } else {
-      console.error('Server error:', err);
-    }
-  });
+for (const signal of ['SIGTERM', 'SIGINT']) {
+  process.on(signal, () => server.close(() => process.exit(0)));
 }
-
-startServer(port);
 
