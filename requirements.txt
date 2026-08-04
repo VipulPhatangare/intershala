@@ -1,0 +1,7 @@
+playwright>=1.44
+beautifulsoup4>=4.12
+lxml>=5.2
+pandas>=2.2
+streamlit>=1.36
+aiohttp>=3.9
+pymongo>=4.6

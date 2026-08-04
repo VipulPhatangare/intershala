@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Internshala Jobs & Internships Hub</title>
+  <!-- Google Fonts & FontAwesome -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=1.2">
+</head>
+<body>
+  <div class="app-container">
+    
+    <!-- Top Header -->
+    <header class="glass-header">
+      <div class="logo-area">
+        <div class="logo-icon"><i class="fa-solid fa-bolt"></i></div>
+        <div>
+          <h1>Internshala Live Hub</h1>
+          <p class="subtitle">MongoDB Storage &bull; Real-time Filters &bull; 36h Auto-Scraper</p>
+        </div>
+      </div>
+      
+      <div class="header-actions">
+        <button id="triggerScrapeBtn" class="btn btn-primary glow-btn">
+          <i class="fa-solid fa-arrows-rotate"></i> Trigger Scrape Now
+        </button>
+      </div>
+    </header>
+
+    <!-- Stats Banner -->
+    <section class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-icon icon-jobs"><i class="fa-solid fa-briefcase"></i></div>
+        <div class="stat-info">
+          <span class="stat-label">Total Jobs</span>
+          <span class="stat-value" id="statJobs">-</span>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon icon-internships"><i class="fa-solid fa-graduation-cap"></i></div>
+        <div class="stat-info">
+          <span class="stat-label">Total Internships</span>
+          <span class="stat-value" id="statInternships">-</span>
+        </div>
+      </div>
+
+      <div class="stat-card highlight-card">
+        <div class="stat-icon icon-recent"><i class="fa-solid fa-clock-rotate-left"></i></div>
+        <div class="stat-info">
+          <span class="stat-label">Updated (Last 36 Hours)</span>
+          <span class="stat-value" id="statRecent">-</span>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon icon-auto"><i class="fa-solid fa-robot"></i></div>
+        <div class="stat-info">
+          <span class="stat-label">36h Auto-Scraper</span>
+          <span class="stat-value badge-status" id="statScheduler">Active</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Filter Control Bar -->
+    <section class="filter-section glass-panel">
+      <!-- Section Tabs -->
+      <div class="tab-group">
+        <button class="tab-btn active" data-source="all">
+          <i class="fa-solid fa-layer-group"></i> All Listings
+        </button>
+        <button class="tab-btn" data-source="jobs">
+          <i class="fa-solid fa-briefcase"></i> Jobs Only
+        </button>
+        <button class="tab-btn" data-source="internships">
+          <i class="fa-solid fa-graduation-cap"></i> Internships Only
+        </button>
+      </div>
+
+      <div class="filter-controls">
+        <!-- Quick 36h Toggle -->
+        <button id="toggle36h" class="filter-chip">
+          <i class="fa-solid fa-bolt-lightning"></i> Last 36 Hours
+        </button>
+
+        <!-- WFH Quick Filter -->
+        <button id="toggleWFH" class="filter-chip">
+          <i class="fa-solid fa-house-laptop"></i> Work From Home
+        </button>
+
+        <!-- Search Input -->
+        <div class="search-box">
+          <i class="fa-solid fa-magnifying-glass"></i>
+          <input type="text" id="searchInput" placeholder="Search by role, company, or skills (e.g. Python, React)...">
+          <button id="clearSearch" class="btn-icon hidden"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+
+        <!-- Location Filter -->
+        <div class="select-box">
+          <i class="fa-solid fa-location-dot"></i>
+          <input type="text" id="locationInput" placeholder="Filter by Location...">
+        </div>
+      </div>
+    </section>
+
+    <!-- Listings Container -->
+    <main class="listings-section">
+      <div class="section-meta">
+        <span id="resultsCount">Showing 0 listings</span>
+        <span id="activeFiltersTag" class="active-filters-tag hidden"></span>
+      </div>
+
+      <div id="listingsGrid" class="cards-grid">
+        <!-- Dynamic Cards Inserted Here -->
+      </div>
+
+      <!-- Loading Spinner -->
+      <div id="loader" class="loader-container">
+        <div class="spinner"></div>
+        <p>Loading MongoDB listings...</p>
+      </div>
+
+      <!-- Empty State -->
+      <div id="emptyState" class="empty-state hidden">
+        <i class="fa-solid fa-folder-open empty-icon"></i>
+        <h3>No matching listings found</h3>
+        <p>Try clearing your filters or running a fresh scrape to update the dataset.</p>
+        <button id="resetFiltersBtn" class="btn btn-secondary mt-3">Reset All Filters</button>
+      </div>
+
+      <!-- Pagination -->
+      <div id="pagination" class="pagination-bar hidden">
+        <button id="prevPage" class="btn btn-secondary"><i class="fa-solid fa-chevron-left"></i> Previous</button>
+        <span id="pageIndicator" class="page-indicator">Page 1 of 1</span>
+        <button id="nextPage" class="btn btn-secondary">Next <i class="fa-solid fa-chevron-right"></i></button>
+      </div>
+    </main>
+
+    <!-- Detail Modal -->
+    <div id="detailModal" class="modal-overlay hidden">
+      <div class="modal-content glass-panel">
+        <button id="closeModalBtn" class="modal-close-btn">&times;</button>
+        <div id="modalBody">
+          <!-- Populated dynamically via app.js -->
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="{{ url_for('static', filename='app.js') }}?v=1.2"></script>
+</body>
+</html>

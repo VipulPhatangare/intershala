@@ -1,0 +1,14 @@
+{
+  "name": "internshala-python-mern-hub",
+  "version": "2.0.0",
+  "description": "Internshala Job Scraper - MERN Stack UI with Python Web Scraper Engine",
+  "scripts": {
+    "server": "npm --prefix server start",
+    "server:dev": "npm --prefix server run dev",
+    "client": "npm --prefix client run dev",
+    "build": "npm --prefix client run build",
+    "start": "npm run build && npm run server",
+    "python:check": "python run_scraper.py check",
+    "python:scrape": "python run_scraper.py fast --source all"
+  }
+}
