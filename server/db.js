@@ -1,10 +1,19 @@
+const crypto = require('crypto');
 const { MongoClient } = require('mongodb');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017';
 const DB_NAME = process.env.MONGO_DB || 'internshala';
-const JWT_SECRET = process.env.JWT_SECRET || 'internshala_admin_secret_key_2026';
+
+// Never fall back to a literal secret: this repo is public, so a committed
+// value lets anyone sign their own admin token. Without JWT_SECRET we mint a
+// random one per process — sessions then end at restart, which is a far better
+// failure mode than a forgeable one.
+const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
+if (!process.env.JWT_SECRET) {
+  console.warn('[Auth] JWT_SECRET not set — using a random per-process secret; admin sessions end on restart.');
+}
 
 let mongoClient = null;
 let db = null;
@@ -23,21 +32,30 @@ async function getDb() {
 }
 
 /**
- * Seed default admin user (vipulphatangare3@gmail.com / 123456) in MongoDB users collection
+ * Seed the admin user in the MongoDB `users` collection.
+ *
+ * Credentials come from ADMIN_EMAIL / ADMIN_PASSWORD so a deployment is not
+ * stuck with the values in this file. Only runs when the user is absent, so a
+ * password changed later is never reset back.
  */
 async function seedAdminUser(database) {
   try {
     const usersColl = database.collection('users');
     await usersColl.createIndex({ email: 1 }, { unique: true });
-    
-    const adminEmail = 'vipulphatangare3@gmail.com';
+
+    const adminEmail = (process.env.ADMIN_EMAIL || 'vipulphatangare3@gmail.com').trim().toLowerCase();
+    const adminPassword = process.env.ADMIN_PASSWORD || '123456';
+
     const existing = await usersColl.findOne({ email: adminEmail });
     if (!existing) {
-      const hashedPassword = await bcrypt.hash('123456', 10);
+      if (!process.env.ADMIN_PASSWORD) {
+        console.warn('[Admin Seed] ADMIN_PASSWORD not set — seeding the default password. Change it before exposing this server.');
+      }
+      const hashedPassword = await bcrypt.hash(adminPassword, 10);
       await usersColl.insertOne({
         email: adminEmail,
         password: hashedPassword,
-        name: 'Vipul Phatangare (Admin)',
+        name: process.env.ADMIN_NAME || 'Vipul Phatangare (Admin)',
         role: 'admin',
         createdAt: new Date(),
         updatedAt: new Date()
