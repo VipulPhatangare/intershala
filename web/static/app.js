@@ -164,7 +164,7 @@ function setupEventListeners() {
     DOM.triggerScrapeBtn.disabled = true;
     DOM.triggerScrapeBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Triggering...';
     try {
-      const res = await fetch('/api/scrape/trigger', {
+      const res = await fetch('/api/admin/scrape/trigger', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ source: state.source })
@@ -184,7 +184,7 @@ function setupEventListeners() {
 // Fetch Stats
 async function fetchStats() {
   try {
-    const res = await fetch('/api/stats');
+    const res = await fetch('/api/jobs/stats');
     const json = await res.json();
     if (json.success) {
       const data = json.data;
@@ -221,7 +221,7 @@ async function fetchListings() {
   if (state.recent36h) params.append('recent_hours', '36');
 
   try {
-    const res = await fetch(`/api/listings?${params.toString()}`);
+    const res = await fetch(`/api/jobs/listings?${params.toString()}`);
     const json = await res.json();
 
     if (json.success) {
@@ -373,7 +373,7 @@ async function openDetailModal(source, jobId, fallbackItem) {
 
   let item = fallbackItem;
   try {
-    const res = await fetch(`/api/listing/${source}/${jobId}`);
+    const res = await fetch(`/api/jobs/listing/${source}/${jobId}`);
     const json = await res.json();
     if (json.success && json.data) {
       item = json.data;

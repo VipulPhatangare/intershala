@@ -8,7 +8,7 @@ export default function DetailModal({ item, onClose }) {
   useEffect(() => {
     if (!item) return;
     setLoading(true);
-    fetch(`/api/listing/${item.source || 'jobs'}/${item.job_id}`)
+    fetch(`/api/jobs/listing/${item.source || 'jobs'}/${item.job_id}`)
       .then((res) => res.json())
       .then((resData) => {
         if (resData.success) {

@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from scraper.config import DATA_DIR
@@ -35,7 +36,7 @@ def get_status() -> dict:
             pass
     return {
         "status": "idle",
-        "interval_hours": 36,
+        "schedule": "Daily at 04:00 AM IST",
         "last_run": None,
         "next_run": None,
         "last_result": None,
@@ -63,7 +64,7 @@ def run_scrape_job(source: str = "all") -> dict:
     status["last_run"] = now_iso
     save_status(status)
 
-    print(f"[Scheduler] Starting 36h automatic scrape at {now_iso}...")
+    print(f"[Scheduler] Starting daily automatic 4:00 AM IST scrape at {now_iso}...")
     try:
         summaries = scrape_parallel(
             source=source,
@@ -106,26 +107,27 @@ def start_scheduler(interval_hours: float = 36.0, run_immediately: bool = False)
         if _scheduler and _scheduler.running:
             return _scheduler
 
-        _scheduler = BackgroundScheduler(timezone="UTC")
+        _scheduler = BackgroundScheduler(timezone="Asia/Kolkata")
+        # Run daily at 4:00 AM IST
         _scheduler.add_job(
             func=run_scrape_job,
-            trigger=IntervalTrigger(hours=interval_hours),
-            id="internshala_36h_scrape",
-            name="Internshala 36-hour Auto Scrape",
+            trigger=CronTrigger(hour=4, minute=0, timezone="Asia/Kolkata"),
+            id="internshala_daily_4am_ist_scrape",
+            name="Internshala Daily 4:00 AM IST Auto Scrape",
             replace_existing=True,
         )
         _scheduler.start()
 
-        job = _scheduler.get_job("internshala_36h_scrape")
+        job = _scheduler.get_job("internshala_daily_4am_ist_scrape")
         next_run = job.next_run_time.isoformat() if job and job.next_run_time else None
 
         status = get_status()
-        status["interval_hours"] = interval_hours
+        status["schedule"] = "Daily at 04:00 AM IST"
         status["next_run"] = next_run
         status["scheduler_active"] = True
         save_status(status)
 
-        print(f"[Scheduler] APScheduler started. Scheduled every {interval_hours} hours. Next run at: {next_run}")
+        print(f"[Scheduler] APScheduler started. Scheduled Daily at 04:00 AM IST. Next run at: {next_run}")
 
         if run_immediately:
             threading.Thread(target=run_scrape_job, daemon=True).start()

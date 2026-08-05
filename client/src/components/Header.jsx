@@ -1,7 +1,7 @@
 import React from 'react';
-import { Zap, RefreshCw, Layers } from 'lucide-react';
+import { Zap, Globe, ShieldCheck } from 'lucide-react';
 
-export default function Header({ onTriggerScrape, isScraping, scraperMessage }) {
+export default function Header({ viewMode, setViewMode, isAdminLoggedIn, adminUser }) {
   return (
     <header className="glass-panel header-bar">
       <div className="brand">
@@ -9,24 +9,25 @@ export default function Header({ onTriggerScrape, isScraping, scraperMessage }) 
           <Zap size={26} />
         </div>
         <div className="brand-text">
-          <h1>Internshala MERN & Python Live Hub</h1>
-          <p>MongoDB Query Engine • React UI • Python Fast Scraper Subprocess</p>
+          <h1>Internshala Job Hub & Scraper</h1>
+          <p>Real-Time MongoDB Listings • Category Filters • Admin Scraping Control</p>
         </div>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-        {scraperMessage && (
-          <span style={{ fontSize: '0.8rem', color: isScraping ? '#38bdf8' : '#10b981', fontWeight: 600 }}>
-            {scraperMessage}
-          </span>
-        )}
+      <div className="header-view-switcher">
         <button
-          className="btn btn-primary"
-          onClick={onTriggerScrape}
-          disabled={isScraping}
+          className={`view-pill ${viewMode === 'public' ? 'active' : ''}`}
+          onClick={() => setViewMode('public')}
         >
-          <RefreshCw className={isScraping ? 'spinner' : ''} size={18} />
-          {isScraping ? 'Scraping in progress...' : 'Trigger Scrape Now'}
+          <Globe size={16} /> Jobs & Internships View
+        </button>
+
+        <button
+          className={`view-pill ${viewMode === 'admin' ? 'active' : ''}`}
+          onClick={() => setViewMode('admin')}
+        >
+          <ShieldCheck size={16} /> Admin Portal
+          {isAdminLoggedIn && <span className="active-dot" title="Logged In"></span>}
         </button>
       </div>
     </header>

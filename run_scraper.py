@@ -139,12 +139,30 @@ def cmd_fast(args: argparse.Namespace) -> int:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     PID_PATH.write_text(str(os.getpid()), encoding="utf-8")
     started = time.time()
+
+    max_pages = args.max_pages
+    recent_hours = getattr(args, "recent_hours", 0) or 0
+    if recent_hours > 0 and max_pages == 0:
+        # Approximate pages based on recent hours window (1 page = ~40 listings ordered by date)
+        if recent_hours <= 12:
+            max_pages = 2
+        elif recent_hours <= 24:
+            max_pages = 3
+        elif recent_hours <= 36:
+            max_pages = 4
+        elif recent_hours <= 48:
+            max_pages = 5
+        elif recent_hours <= 72:
+            max_pages = 8
+        else:
+            max_pages = 10
+
     try:
         summaries = scrape_parallel(
             source=args.source,
             listing_concurrency=args.listing_concurrency,
             detail_concurrency=args.concurrency,
-            max_pages=args.max_pages,
+            max_pages=max_pages,
             with_details=not args.no_details,
             resume=not args.fresh,
             use_mongo=not args.no_mongo,
@@ -378,6 +396,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--listing-concurrency", type=int, default=LISTING_CONCURRENCY,
                    help=f"parallel listing pages (default {LISTING_CONCURRENCY})")
     p.add_argument("--max-pages", type=int, default=0, help="0 = every page")
+    p.add_argument("--recent-hours", type=float, default=0, help="target hours window for scraping (e.g. 12, 24, 36, 48)")
     p.add_argument("--fresh", action="store_true",
                    help="re-fetch everything instead of skipping stored ids")
     p.add_argument("--no-details", action="store_true", help="listing fields only")

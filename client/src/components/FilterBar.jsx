@@ -1,9 +1,12 @@
 import React from 'react';
-import { Layers, Briefcase, GraduationCap, Zap, Home, Search, MapPin } from 'lucide-react';
+import { Layers, Briefcase, GraduationCap, Zap, Home, Search, MapPin, Tag } from 'lucide-react';
 
 export default function FilterBar({
   source,
   setSource,
+  category,
+  setCategory,
+  categories = [],
   search,
   setSearch,
   location,
@@ -50,6 +53,22 @@ export default function FilterBar({
         >
           <Home size={15} /> Work From Home
         </button>
+
+        <div className="category-select-wrap">
+          <Tag className="input-icon" size={16} />
+          <select
+            className="category-dropdown"
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+          >
+            <option value="All Categories">All Categories</option>
+            {categories.map((cat) => (
+              <option key={cat} value={cat}>
+                {cat}
+              </option>
+            ))}
+          </select>
+        </div>
 
         <div className="search-input-wrap">
           <Search className="input-icon" size={16} />

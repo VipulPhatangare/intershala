@@ -1,0 +1,582 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  Play,
+  RotateCw,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  Briefcase,
+  GraduationCap,
+  Database,
+  Layers,
+  Search,
+  LogOut,
+  ShieldCheck,
+  AlertTriangle,
+  FileText
+} from 'lucide-react';
+import ListingCard from './ListingCard';
+import DetailModal from './DetailModal';
+
+export default function AdminDashboard({ token, adminUser, onLogout }) {
+  const [metrics, setMetrics] = useState(null);
+  const [logs, setLogs] = useState([]);
+  const [logPage, setLogPage] = useState(1);
+  const [totalLogPages, setTotalLogPages] = useState(1);
+  const [isScraping, setIsScraping] = useState(false);
+  const [scrapeSource, setScrapeSource] = useState('all');
+  const [scrapeHours, setScrapeHours] = useState(36);
+  const [scrapeMaxPages, setScrapeMaxPages] = useState(0);
+  const [scrapeMessage, setScraperMessage] = useState('');
+  
+  // Data view state
+  const [activeTab, setActiveTab] = useState('logs'); // 'logs' | 'data'
+  const [listings, setListings] = useState([]);
+  const [totalListings, setTotalListings] = useState(0);
+  const [dataSearch, setDataSearch] = useState('');
+  const [dataCategory, setDataCategory] = useState('All Categories');
+  const [dataSource, setDataSource] = useState('all');
+  const [categories, setCategories] = useState([]);
+  const [selectedItem, setSelectedItem] = useState(null);
+  const [loadingData, setLoadingData] = useState(false);
+
+  // Fetch Categories
+  useEffect(() => {
+    fetch('/api/jobs/categories')
+      .then((res) => res.json())
+      .then((json) => {
+        if (json.success) setCategories(json.categories);
+      })
+      .catch(console.error);
+  }, []);
+
+  // Fetch Metrics & Scrape Logs
+  const fetchAdminData = useCallback(async () => {
+    try {
+      // Metrics
+      const resMetrics = await fetch('/api/admin/scrape-metrics', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const jsonMetrics = await resMetrics.json();
+      if (jsonMetrics.success) {
+        setMetrics(jsonMetrics.data);
+        setIsScraping(jsonMetrics.data.is_running);
+      }
+
+      // Logs
+      const resLogs = await fetch(`/api/admin/scrape-logs?page=${logPage}&limit=10`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const jsonLogs = await resLogs.json();
+      if (jsonLogs.success) {
+        setLogs(jsonLogs.logs || []);
+        setTotalLogPages(jsonLogs.total_pages || 1);
+      }
+    } catch (err) {
+      console.error('Error fetching admin dashboard data:', err);
+    }
+  }, [token, logPage]);
+
+  // Fetch Data Listings for Data tab
+  const fetchListings = useCallback(async () => {
+    setLoadingData(true);
+    try {
+      const params = new URLSearchParams();
+      params.append('source', dataSource);
+      if (dataCategory && dataCategory !== 'All Categories') {
+        params.append('category', dataCategory);
+      }
+      if (dataSearch) params.append('search', dataSearch);
+      params.append('page', '1');
+      params.append('limit', '12');
+
+      const res = await fetch(`/api/jobs/listings?${params.toString()}`);
+      const json = await res.json();
+      if (json.success) {
+        setListings(json.data.items || []);
+        setTotalListings(json.data.total || 0);
+      }
+    } catch (err) {
+      console.error('Error fetching listings:', err);
+    } finally {
+      setLoadingData(false);
+    }
+  }, [dataSource, dataCategory, dataSearch]);
+
+  useEffect(() => {
+    fetchAdminData();
+    const interval = setInterval(fetchAdminData, 4000);
+    return () => clearInterval(interval);
+  }, [fetchAdminData]);
+
+  useEffect(() => {
+    if (activeTab === 'data') {
+      fetchListings();
+    }
+  }, [activeTab, fetchListings]);
+
+  // Trigger Manual Scrape
+  const handleTriggerScrape = async () => {
+    try {
+      setIsScraping(true);
+      setScraperMessage(`Triggering manual Python scraper for ${scrapeHours ? `last ${scrapeHours} hours` : 'all time'}...`);
+      const res = await fetch('/api/admin/scrape/trigger', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          source: scrapeSource,
+          recent_hours: parseFloat(scrapeHours),
+          max_pages: parseInt(scrapeMaxPages, 10),
+          triggered_by: 'admin_manual'
+        })
+      });
+      const json = await res.json();
+      if (json.success) {
+        setScraperMessage('Scraper successfully started in background!');
+        setTimeout(fetchAdminData, 2000);
+      } else {
+        setScraperMessage(json.message || 'Failed to start scraper');
+        setIsScraping(false);
+      }
+    } catch (err) {
+      setScraperMessage('Error starting scraper process');
+      setIsScraping(false);
+    }
+  };
+
+  const formatDate = (dt) => {
+    if (!dt) return 'N/A';
+    return new Date(dt).toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+  };
+
+  return (
+    <div className="admin-container">
+      {/* Top Admin Header Bar */}
+      <div className="admin-header-panel glass-panel">
+        <div className="admin-user-info">
+          <div className="admin-avatar">
+            <ShieldCheck size={24} color="#38bdf8" />
+          </div>
+          <div>
+            <h3 style={{ fontSize: '1.1rem', margin: 0, fontWeight: 700 }}>
+              Admin Control Center
+            </h3>
+            <p style={{ fontSize: '0.85rem', color: '#94a3b8', margin: 0 }}>
+              Logged in as: <strong style={{ color: '#e2e8f0' }}>{adminUser?.email || 'vipulphatangare3@gmail.com'}</strong>
+            </p>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+          <div className="admin-tab-pills">
+            <button
+              className={`tab-btn ${activeTab === 'logs' ? 'active' : ''}`}
+              onClick={() => setActiveTab('logs')}
+            >
+              <FileText size={16} /> Scraping Logs & Control
+            </button>
+            <button
+              className={`tab-btn ${activeTab === 'data' ? 'active' : ''}`}
+              onClick={() => setActiveTab('data')}
+            >
+              <Database size={16} /> All Database Data ({totalListings})
+            </button>
+          </div>
+
+          <button className="btn btn-secondary logout-btn" onClick={onLogout}>
+            <LogOut size={16} /> Logout
+          </button>
+        </div>
+      </div>
+
+      {activeTab === 'logs' ? (
+        <>
+          {/* Today's Metrics & Database Totals Overview Cards */}
+          <div className="admin-metrics-grid">
+            <div className="metric-card glass-panel">
+              <div className="metric-icon" style={{ background: 'rgba(52, 211, 153, 0.15)', color: '#34d399' }}>
+                <Briefcase size={24} />
+              </div>
+              <div className="metric-content">
+                <span className="metric-label">Total Jobs in DB</span>
+                <span className="metric-value">{(metrics?.jobs_total ?? 0).toLocaleString()}</span>
+                <span className="metric-sub">Stored in MongoDB</span>
+              </div>
+            </div>
+
+            <div className="metric-card glass-panel">
+              <div className="metric-icon" style={{ background: 'rgba(168, 85, 247, 0.15)', color: '#c084fc' }}>
+                <GraduationCap size={24} />
+              </div>
+              <div className="metric-content">
+                <span className="metric-label">Total Internships in DB</span>
+                <span className="metric-value">{(metrics?.internships_total ?? 0).toLocaleString()}</span>
+                <span className="metric-sub">Stored in MongoDB</span>
+              </div>
+            </div>
+
+            <div className="metric-card glass-panel">
+              <div className="metric-icon" style={{ background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8' }}>
+                <RotateCw size={24} />
+              </div>
+              <div className="metric-content">
+                <span className="metric-label">Today's Scrapes Count</span>
+                <span className="metric-value">{metrics?.total_scrapes_today ?? 0}</span>
+                <span className="metric-sub">Runs executed today</span>
+              </div>
+            </div>
+
+            <div className="metric-card glass-panel">
+              <div className="metric-icon" style={{ background: 'rgba(52, 211, 153, 0.15)', color: '#34d399' }}>
+                <Briefcase size={24} />
+              </div>
+              <div className="metric-content">
+                <span className="metric-label">New Jobs Today</span>
+                <span className="metric-value">+{metrics?.new_jobs_added_today ?? 0}</span>
+                <span className="metric-sub">Added to MongoDB</span>
+              </div>
+            </div>
+
+            <div className="metric-card glass-panel">
+              <div className="metric-icon" style={{ background: 'rgba(168, 85, 247, 0.15)', color: '#c084fc' }}>
+                <GraduationCap size={24} />
+              </div>
+              <div className="metric-content">
+                <span className="metric-label">New Internships Today</span>
+                <span className="metric-value">+{metrics?.new_internships_added_today ?? 0}</span>
+                <span className="metric-sub">Added to MongoDB</span>
+              </div>
+            </div>
+
+            <div className="metric-card glass-panel">
+              <div
+                className="metric-icon"
+                style={{
+                  background: metrics?.last_scrape?.status === 'success'
+                    ? 'rgba(52, 211, 153, 0.15)'
+                    : 'rgba(248, 113, 113, 0.15)',
+                  color: metrics?.last_scrape?.status === 'success' ? '#34d399' : '#f87171'
+                }}
+              >
+                {metrics?.last_scrape?.status === 'success' ? <CheckCircle2 size={24} /> : <XCircle size={24} />}
+              </div>
+              <div className="metric-content">
+                <span className="metric-label">Last Scrape Status</span>
+                <span
+                  className={`status-pill ${metrics?.last_scrape?.status || 'idle'}`}
+                  style={{ display: 'inline-block', width: 'fit-content', marginTop: '0.2rem' }}
+                >
+                  {metrics?.last_scrape?.status?.toUpperCase() || 'IDLE'}
+                </span>
+                <span className="metric-sub">{formatDate(metrics?.last_scrape?.started_at)}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Manual Scraping Action Panel */}
+          <div className="scrape-control-panel glass-panel">
+            <div className="control-header">
+              <div>
+                <h3 style={{ fontSize: '1.2rem', marginBottom: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Play size={20} color="#38bdf8" /> Manual Scrape Trigger
+                </h3>
+                <p style={{ color: '#94a3b8', fontSize: '0.85rem', margin: 0 }}>
+                  Initiate a real-time scrape job to extract the latest Internshala listings.
+                </p>
+              </div>
+
+              {isScraping && (
+                <div className="running-indicator">
+                  <span className="pulse-dot"></span> Scraper is currently executing...
+                </div>
+              )}
+            </div>
+
+            <div className="scrape-options">
+              <div className="option-group">
+                <label>Source</label>
+                <select
+                  value={scrapeSource}
+                  onChange={(e) => setScrapeSource(e.target.value)}
+                  disabled={isScraping}
+                >
+                  <option value="all">All (Jobs + Internships)</option>
+                  <option value="jobs">Jobs Only</option>
+                  <option value="internships">Internships Only</option>
+                </select>
+              </div>
+
+              <div className="option-group">
+                <label>Target Hours Window</label>
+                <select
+                  value={scrapeHours}
+                  onChange={(e) => setScrapeHours(e.target.value)}
+                  disabled={isScraping}
+                >
+                  <option value="12">Last 12 Hours (Quick Refresh)</option>
+                  <option value="24">Last 24 Hours (Today's Data)</option>
+                  <option value="36">Last 36 Hours (Standard Scope)</option>
+                  <option value="48">Last 48 Hours (2 Days)</option>
+                  <option value="72">Last 72 Hours (3 Days)</option>
+                  <option value="0">All Time (Full Deep Scrape)</option>
+                </select>
+              </div>
+
+              <div className="option-group">
+                <label>Max Pages Per Source</label>
+                <select
+                  value={scrapeMaxPages}
+                  onChange={(e) => setScrapeMaxPages(e.target.value)}
+                  disabled={isScraping}
+                >
+                  <option value="0">Auto / Unlimited</option>
+                  <option value="1">1 Page (~40 listings)</option>
+                  <option value="2">2 Pages (~80 listings)</option>
+                  <option value="5">5 Pages (~200 listings)</option>
+                  <option value="10">10 Pages (~400 listings)</option>
+                </select>
+              </div>
+
+              <button
+                className={`btn btn-primary scrape-trigger-btn ${isScraping ? 'disabled' : ''}`}
+                onClick={handleTriggerScrape}
+                disabled={isScraping}
+              >
+                {isScraping ? (
+                  <>
+                    <RotateCw size={18} className="spin" /> Scraping in Progress...
+                  </>
+                ) : (
+                  <>
+                    <Play size={18} /> Run Manual Scrape Now
+                  </>
+                )}
+              </button>
+            </div>
+
+            {scrapeMessage && (
+              <div className="scrape-message-banner">
+                <span>{scrapeMessage}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Detailed Scraping Logs Table */}
+          <div className="logs-section glass-panel">
+            <div className="logs-header">
+              <div>
+                <h3 style={{ fontSize: '1.15rem', marginBottom: '0.2rem' }}>
+                  📋 Scraping Execution History Logs
+                </h3>
+                <p style={{ fontSize: '0.85rem', color: '#94a3b8', margin: 0 }}>
+                  Real-time history of all manual and scheduled scraping runs stored in MongoDB <code>scrape_logs</code> collection.
+                </p>
+              </div>
+              <button className="btn btn-secondary" onClick={fetchAdminData}>
+                <RotateCw size={16} /> Refresh Logs
+              </button>
+            </div>
+
+            {logs.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8' }}>
+                <Clock size={36} style={{ marginBottom: '0.5rem', opacity: 0.5 }} />
+                <p>No scraping execution logs recorded yet. Click "Run Manual Scrape Now" to test!</p>
+              </div>
+            ) : (
+              <>
+                <div className="table-responsive">
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>Time (Started At)</th>
+                        <th>Status</th>
+                        <th>Source</th>
+                        <th>Already Stored</th>
+                        <th>New Added</th>
+                        <th>Total Post-Scrape</th>
+                        <th>Triggered By</th>
+                        <th>Log Message</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {logs.map((log) => {
+                        const preTotal = (log.pre_jobs_count || 0) + (log.pre_internships_count || 0);
+                        const newTotal = log.total_scraped || 0;
+                        const postTotal = log.post_jobs_count !== undefined && log.post_internships_count !== undefined
+                          ? (log.post_jobs_count + log.post_internships_count)
+                          : (preTotal + newTotal);
+
+                        return (
+                          <tr key={log._id || log.log_id}>
+                            <td>
+                              <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>
+                                {formatDate(log.started_at)}
+                              </div>
+                            </td>
+                            <td>
+                              <span className={`status-pill ${log.status}`}>
+                                {log.status === 'running' && <RotateCw size={12} className="spin" />}
+                                {log.status === 'success' && <CheckCircle2 size={12} />}
+                                {log.status === 'failed' && <XCircle size={12} />}
+                                {log.status}
+                              </span>
+                            </td>
+                            <td>
+                              <span className="source-tag">{log.source?.toUpperCase()}</span>
+                            </td>
+                            <td>
+                              <span style={{ color: '#94a3b8', fontWeight: 600 }}>
+                                {preTotal.toLocaleString()}
+                              </span>
+                            </td>
+                            <td>
+                              <strong style={{ color: '#38bdf8' }}>
+                                +{newTotal.toLocaleString()}
+                              </strong>
+                              <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                                (+{log.new_jobs_added || 0} J / +{log.new_internships_added || 0} I)
+                              </div>
+                            </td>
+                            <td>
+                              <strong style={{ color: '#34d399', fontSize: '0.95rem' }}>
+                                {postTotal.toLocaleString()}
+                              </strong>
+                            </td>
+                            <td>
+                              <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
+                                {log.triggered_by || 'manual'}
+                              </span>
+                            </td>
+                            <td style={{ maxWidth: '280px' }}>
+                              <div className="log-msg" title={log.message}>
+                                {log.message}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {totalLogPages > 1 && (
+                  <div className="pagination" style={{ marginTop: '1rem' }}>
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => setLogPage((p) => Math.max(1, p - 1))}
+                      disabled={logPage === 1}
+                    >
+                      Previous
+                    </button>
+                    <span className="page-info">
+                      Page {logPage} of {totalLogPages}
+                    </span>
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => setLogPage((p) => Math.min(totalLogPages, p + 1))}
+                      disabled={logPage >= totalLogPages}
+                    >
+                      Next
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </>
+      ) : (
+        /* Data Inspection Tab */
+        <div className="admin-data-section glass-panel">
+          <div className="data-controls">
+            <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', width: '100%' }}>
+              {/* Category Filter */}
+              <div className="filter-group">
+                <label>Filter Category</label>
+                <select
+                  value={dataCategory}
+                  onChange={(e) => setDataCategory(e.target.value)}
+                  className="filter-select"
+                >
+                  <option value="All Categories">All Categories</option>
+                  {categories.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Source Filter */}
+              <div className="filter-group">
+                <label>Source Type</label>
+                <select
+                  value={dataSource}
+                  onChange={(e) => setDataSource(e.target.value)}
+                  className="filter-select"
+                >
+                  <option value="all">All Sources</option>
+                  <option value="jobs">Jobs Only</option>
+                  <option value="internships">Internships Only</option>
+                </select>
+              </div>
+
+              {/* Search Bar */}
+              <div className="filter-group" style={{ flex: 1, minWidth: '220px' }}>
+                <label>Search MongoDB Data</label>
+                <div className="input-with-icon">
+                  <Search size={16} className="input-icon" />
+                  <input
+                    type="text"
+                    value={dataSearch}
+                    onChange={(e) => setDataSearch(e.target.value)}
+                    placeholder="Search by title, company, skills..."
+                    className="filter-input"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ marginBottom: '1rem', fontSize: '0.85rem', color: '#94a3b8' }}>
+            Found {totalListings} total documents in MongoDB matching selected filters.
+          </div>
+
+          {loadingData ? (
+            <div className="loader-container">
+              <div className="spinner"></div>
+              <p>Fetching documents from MongoDB...</p>
+            </div>
+          ) : listings.length === 0 ? (
+            <div style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>
+              <Layers size={36} style={{ marginBottom: '0.5rem' }} />
+              <p>No listings matched your criteria in MongoDB.</p>
+            </div>
+          ) : (
+            <div className="cards-grid">
+              {listings.map((item) => (
+                <ListingCard
+                  key={`${item.source}-${item.job_id}`}
+                  item={item}
+                  onClick={setSelectedItem}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {selectedItem && (
+        <DetailModal item={selectedItem} onClose={() => setSelectedItem(null)} />
+      )}
+    </div>
+  );
+}

@@ -26,6 +26,7 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/api/jobs/stats", methods=["GET"])
 @app.route("/api/stats", methods=["GET"])
 def api_stats():
     store = MongoStore()
@@ -40,6 +41,7 @@ def api_stats():
         store.close()
 
 
+@app.route("/api/jobs/listings", methods=["GET"])
 @app.route("/api/listings", methods=["GET"])
 def api_listings():
     source_param = request.args.get("source", "all")
@@ -80,6 +82,7 @@ def api_listings():
         store.close()
 
 
+@app.route("/api/jobs/listing/<source>/<job_id>", methods=["GET"])
 @app.route("/api/listing/<source>/<job_id>", methods=["GET"])
 def api_listing_detail(source, job_id):
     if source not in ["jobs", "internships"]:
@@ -101,6 +104,7 @@ def api_listing_detail(source, job_id):
         store.close()
 
 
+@app.route("/api/admin/scrape/trigger", methods=["POST"])
 @app.route("/api/scrape/trigger", methods=["POST"])
 def api_trigger_scrape():
     req_json = request.get_json(silent=True) or {}
