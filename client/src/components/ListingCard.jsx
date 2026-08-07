@@ -18,6 +18,9 @@ export default function ListingCard({ item, onClick }) {
           <span className={`source-badge ${isJob ? 'jobs' : 'internships'}`}>
             {isJob ? 'Job' : 'Internship'}
           </span>
+          {item.status === 'external' && (
+            <span className="sponsored-badge">Sponsored</span>
+          )}
           {item.is_36h_new && (
             <span style={{ fontSize: '0.7rem', color: '#06b6d4', fontWeight: 700, background: 'rgba(6, 182, 212, 0.1)', padding: '0.2rem 0.5rem', borderRadius: '4px' }}>
               ⚡ Recent

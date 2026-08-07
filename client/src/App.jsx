@@ -30,6 +30,7 @@ export default function App() {
   const [location, setLocation] = useState('');
   const [recentOnly, setRecentOnly] = useState(false);
   const [wfhOnly, setWfhOnly] = useState(false);
+  const [hideSponsored, setHideSponsored] = useState(false);
   const [page, setPage] = useState(1);
   const [listingsData, setListingsData] = useState({ items: [], total: 0, total_pages: 1 });
   const [loading, setLoading] = useState(true);
@@ -87,6 +88,7 @@ export default function App() {
       if (location) params.append('location', location);
       if (recentOnly) params.append('recent_hours', '36');
       if (wfhOnly) params.append('wfh', 'true');
+      if (hideSponsored) params.append('hide_sponsored', 'true');
       params.append('page', page.toString());
       params.append('limit', '18');
 
@@ -100,7 +102,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [source, category, search, location, recentOnly, wfhOnly, page]);
+  }, [source, category, search, location, recentOnly, wfhOnly, hideSponsored, page]);
 
   useEffect(() => {
     fetchStats();
@@ -108,7 +110,7 @@ export default function App() {
 
   useEffect(() => {
     setPage(1);
-  }, [source, category, search, location, recentOnly, wfhOnly]);
+  }, [source, category, search, location, recentOnly, wfhOnly, hideSponsored]);
 
   useEffect(() => {
     if (viewMode === 'public') {
@@ -154,6 +156,8 @@ export default function App() {
             recentOnly={recentOnly}
             setRecentOnly={setRecentOnly}
             wfhOnly={wfhOnly}
+            hideSponsored={hideSponsored}
+            setHideSponsored={setHideSponsored}
             setWfhOnly={setWfhOnly}
           />
 

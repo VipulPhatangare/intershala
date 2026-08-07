@@ -25,6 +25,9 @@ export default function DetailModal({ item, onClose }) {
 
   const data = detail || item;
   const url = data.url || data.link || `https://internshala.com/${data.source || 'internship'}/detail/${data.job_id}`;
+  // Sponsored cards link straight out to the advertiser, so no description was
+  // ever available to scrape. Say so rather than showing an empty modal.
+  const isSponsored = data.status === 'external';
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -72,6 +75,14 @@ export default function DetailModal({ item, onClose }) {
               </div>
             </div>
 
+            {isSponsored && (
+              <div className="sponsored-note">
+                <strong>Sponsored listing.</strong> This role is posted by an external
+                partner, so the full description lives on the employer's own site rather
+                than on Internshala. Use the button below to read it and apply.
+              </div>
+            )}
+
             {data.description && (
               <div style={{ marginBottom: '1.5rem' }}>
                 <h4 style={{ fontSize: '1rem', color: '#f8fafc', marginBottom: '0.5rem' }}>About the Role</h4>
@@ -116,7 +127,7 @@ export default function DetailModal({ item, onClose }) {
                 className="btn btn-primary"
                 style={{ textDecoration: 'none' }}
               >
-                Apply on Internshala <ExternalLink size={16} />
+                {isSponsored ? 'View on partner site' : 'Apply on Internshala'} <ExternalLink size={16} />
               </a>
               <button className="btn btn-secondary" onClick={onClose}>
                 Close
