@@ -64,6 +64,12 @@ AJAX_HEADING_KEY = "internship_seo_heading_html"
 MONGO_URI = os.environ.get("MONGO_URI", "mongodb://127.0.0.1:27017")
 MONGO_DB = os.environ.get("MONGO_DB", "internshala")
 
+# Sponsored cards point off-site at an ad tracker, so they can never carry a
+# description and show up as half-empty listings. Drop them during the scrape
+# rather than storing rows that only get filtered out later. Set
+# SCRAPER_KEEP_EXTERNAL=1 to go back to storing them as status="external".
+SKIP_EXTERNAL = os.environ.get("SCRAPER_KEEP_EXTERNAL", "").strip().lower() not in {"1", "true", "yes"}
+
 # --------------------------------------------------------------------------
 # Browser
 # --------------------------------------------------------------------------

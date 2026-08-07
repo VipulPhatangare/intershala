@@ -1,5 +1,5 @@
 import React from 'react';
-import { Layers, Briefcase, GraduationCap, Zap, Home, Search, MapPin, Tag, FileText } from 'lucide-react';
+import { Layers, Briefcase, GraduationCap, Zap, Home, Search, MapPin, Tag } from 'lucide-react';
 
 export default function FilterBar({
   source,
@@ -15,8 +15,6 @@ export default function FilterBar({
   setRecentOnly,
   wfhOnly,
   setWfhOnly,
-  hideSponsored,
-  setHideSponsored,
 }) {
   return (
     <section className="glass-panel filter-panel">
@@ -54,14 +52,6 @@ export default function FilterBar({
           onClick={() => setWfhOnly(!wfhOnly)}
         >
           <Home size={15} /> Work From Home
-        </button>
-
-        <button
-          className={`chip-btn ${hideSponsored ? 'active' : ''}`}
-          onClick={() => setHideSponsored(!hideSponsored)}
-          title="Sponsored listings are posted off-site and carry no description"
-        >
-          <FileText size={15} /> With Full Details
         </button>
 
         <div className="category-select-wrap">

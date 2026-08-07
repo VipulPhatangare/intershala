@@ -40,6 +40,7 @@ from .config import (
     LISTINGS,
     MONGO_BATCH,
     PAGE_PROBE_BATCH,
+    SKIP_EXTERNAL,
     SOURCES,
     VERSION,
 )
@@ -242,14 +243,21 @@ async def detail_worker(
         record["scraped_at"] = _now()
         record["scraper_version"] = VERSION
 
+        drop = False
         try:
             if not with_details or not record.get("url"):
                 record["status"] = "listing_only"
             elif not is_internshala(record["url"]):
                 # A sponsored card links straight out to an ad tracker. There
                 # is no Internshala detail page behind it, so the listing
-                # fields are all we will ever get for this one.
-                record["status"] = "external"
+                # fields are all we will ever get for this one — no
+                # description, ever. SKIP_EXTERNAL drops them at the source so
+                # they never reach either sink; set SCRAPER_KEEP_EXTERNAL=1 to
+                # store them as status="external" the way earlier runs did.
+                if SKIP_EXTERNAL:
+                    drop = True
+                else:
+                    record["status"] = "external"
             else:
                 html = await fetcher.get_text(record["url"], referer=LISTINGS[source])
                 # ~110ms per page, and lxml releases the GIL for the parse
@@ -269,6 +277,10 @@ async def detail_worker(
             record["error"] = f"{type(exc).__name__}: {exc}"
             progress.failed += 1
             progress.error(f"{record.get('title') or record.get('url')} — {exc}")
+
+        if drop:
+            queue.task_done()
+            continue
 
         try:
             await writer.add(record)

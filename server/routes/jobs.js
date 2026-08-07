@@ -44,16 +44,24 @@ router.get('/stats', async (req, res) => {
     let recent36hTotal = 0;
     let lastUpdated = null;
 
+    // Match what /listings actually serves, or the KPI overstates the site.
+    const notSponsored = { status: { $ne: 'external' } };
+
     for (const source of sources) {
       const coll = database.collection(source);
-      const count = await coll.countDocuments();
+      const count = await coll.countDocuments(notSponsored);
       if (source === 'jobs') jobsTotal = count;
       else internshipsTotal = count;
 
       const recentCount = await coll.countDocuments({
-        $or: [
-          { updated_at: { $gte: cutoff36h } },
-          { first_seen_at: { $gte: cutoff36h } }
+        $and: [
+          notSponsored,
+          {
+            $or: [
+              { updated_at: { $gte: cutoff36h } },
+              { first_seen_at: { $gte: cutoff36h } }
+            ]
+          }
         ]
       });
       recent36hTotal += recentCount;
@@ -107,7 +115,9 @@ router.get('/listings', async (req, res) => {
     const searchParam = req.query.search ? req.query.search.trim() : null;
     const locationParam = req.query.location ? req.query.location.trim() : null;
     const wfhParam = req.query.wfh === 'true' || req.query.wfh === '1';
-    const hideSponsored = req.query.hide_sponsored === 'true' || req.query.hide_sponsored === '1';
+    // Sponsored rows are excluded by default; pass include_sponsored=true to
+    // see the ones older scrapes stored before SKIP_EXTERNAL was introduced.
+    const includeSponsored = req.query.include_sponsored === 'true' || req.query.include_sponsored === '1';
     const recentHours = parseFloat(req.query.recent_hours) || null;
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 18;
@@ -157,10 +167,8 @@ router.get('/listings', async (req, res) => {
       andConditions.push({ location: { $regex: locationParam, $options: 'i' } });
     }
 
-    // Sponsored listings are off-site ad cards: the scraper stores them with
-    // status "external" because there is no Internshala page behind them, so
-    // they can never carry a description. Let the caller drop them.
-    if (hideSponsored) {
+    // Off-site ad cards carry no description, so they never reach the site.
+    if (!includeSponsored) {
       andConditions.push({ status: { $ne: 'external' } });
     }
 
