@@ -1,4 +1,5 @@
 const express = require('express');
+const crypto = require('crypto');
 const { spawn } = require('child_process');
 const path = require('path');
 const bcrypt = require('bcryptjs');
@@ -192,15 +193,44 @@ async function handleScrapeTrigger(req, res) {
 }
 
 /**
+ * Constant-time compare, so a wrong token cannot be narrowed down by timing.
+ */
+function tokenMatches(supplied, expected) {
+  const a = Buffer.from(String(supplied || ''));
+  const b = Buffer.from(expected);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+/**
+ * POST /api/admin/scrape/scheduled-trigger
+ *
+ * Entry point for the systemd timer. It runs the same path as the dashboard
+ * button, so a scheduled run writes a `scrape_logs` row and appears in the
+ * execution history alongside manual ones. Guarded by a shared secret rather
+ * than a JWT because there is no user session behind it.
+ */
+router.post('/scrape/scheduled-trigger', (req, res) => {
+  const expected = process.env.SCRAPE_TRIGGER_TOKEN;
+  if (!expected) {
+    return res.status(503).json({ success: false, error: 'SCRAPE_TRIGGER_TOKEN is not configured' });
+  }
+  if (!tokenMatches(req.get('X-Scrape-Token'), expected)) {
+    return res.status(401).json({ success: false, error: 'Unauthorized: invalid trigger token' });
+  }
+  req.body = { triggered_by: 'scheduled', ...(req.body || {}) };
+  return handleScrapeTrigger(req, res);
+});
+
+/**
  * POST /api/admin/scrape/trigger
  */
-router.post('/scrape/trigger', handleScrapeTrigger);
-router.post('/trigger-scrape', handleScrapeTrigger);
+router.post('/scrape/trigger', requireAdmin, handleScrapeTrigger);
+router.post('/trigger-scrape', requireAdmin, handleScrapeTrigger);
 
 /**
  * GET /api/admin/scrape/status
  */
-router.get('/scrape/status', async (req, res) => {
+router.get('/scrape/status', requireAdmin, async (req, res) => {
   try {
     const database = await getDb();
     const scrapeLogsColl = database.collection('scrape_logs');
@@ -220,7 +250,7 @@ router.get('/scrape/status', async (req, res) => {
  * GET /api/admin/scrape-logs
  * Fetch past scraping execution history stored in MongoDB `scrape_logs`
  */
-router.get('/scrape-logs', async (req, res) => {
+router.get('/scrape-logs', requireAdmin, async (req, res) => {
   try {
     const database = await getDb();
     const page = parseInt(req.query.page, 10) || 1;
@@ -252,7 +282,7 @@ router.get('/scrape-logs', async (req, res) => {
  * GET /api/admin/scrape-metrics
  * Summary of today's scraping runs, counts, timestamps, and added metrics
  */
-router.get('/scrape-metrics', async (req, res) => {
+router.get('/scrape-metrics', requireAdmin, async (req, res) => {
   try {
     const database = await getDb();
     const scrapeLogsColl = database.collection('scrape_logs');
