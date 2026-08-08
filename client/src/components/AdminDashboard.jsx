@@ -13,10 +13,20 @@ import {
   LogOut,
   ShieldCheck,
   AlertTriangle,
-  FileText
+  FileText,
+  Key,
+  Copy,
+  Check,
+  Eye,
+  EyeOff,
+  Code,
+  Terminal,
+  RefreshCw,
+  ExternalLink
 } from 'lucide-react';
 import ListingCard from './ListingCard';
 import DetailModal from './DetailModal';
+
 
 export default function AdminDashboard({ token, adminUser, onLogout }) {
   const [metrics, setMetrics] = useState(null);
@@ -30,7 +40,7 @@ export default function AdminDashboard({ token, adminUser, onLogout }) {
   const [scrapeMessage, setScraperMessage] = useState('');
   
   // Data view state
-  const [activeTab, setActiveTab] = useState('logs'); // 'logs' | 'data'
+  const [activeTab, setActiveTab] = useState('logs'); // 'logs' | 'data' | 'apikey'
   const [listings, setListings] = useState([]);
   const [totalListings, setTotalListings] = useState(0);
   const [dataSearch, setDataSearch] = useState('');
@@ -39,6 +49,61 @@ export default function AdminDashboard({ token, adminUser, onLogout }) {
   const [categories, setCategories] = useState([]);
   const [selectedItem, setSelectedItem] = useState(null);
   const [loadingData, setLoadingData] = useState(false);
+
+  // API Key & Docs State
+  const [apiKeyInfo, setApiKeyInfo] = useState(null);
+  const [showKey, setShowKey] = useState(false);
+  const [copiedKey, setCopiedKey] = useState(false);
+  const [copiedSnippet, setCopiedSnippet] = useState(false);
+  const [isRegeneratingKey, setIsRegeneratingKey] = useState(false);
+  const [activeCodeLang, setActiveCodeLang] = useState('curl');
+
+  // Fetch Active API Key
+  const fetchApiKey = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/api-key', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const json = await res.json();
+      if (json.success) {
+        setApiKeyInfo(json.apiKey);
+      }
+    } catch (err) {
+      console.error('Error fetching API key:', err);
+    }
+  }, [token]);
+
+  // Regenerate API Key Handler
+  const handleRegenerateKey = async () => {
+    if (!window.confirm('⚠️ Are you sure you want to REGENERATE the API key?\n\nThis will permanently revoke the current API key. Only 1 active API key works at a time. Any external application using the current key will immediately fail until updated.')) {
+      return;
+    }
+    setIsRegeneratingKey(true);
+    try {
+      const res = await fetch('/api/admin/api-key/regenerate', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const json = await res.json();
+      if (json.success) {
+        setApiKeyInfo(json.apiKey);
+        setShowKey(true);
+      } else {
+        alert('Failed to regenerate key: ' + (json.error || json.message));
+      }
+    } catch (err) {
+      alert('Error regenerating API key');
+    } finally {
+      setIsRegeneratingKey(false);
+    }
+  };
+
+  const handleCopyKey = () => {
+    if (!apiKeyInfo?.key) return;
+    navigator.clipboard.writeText(apiKeyInfo.key);
+    setCopiedKey(true);
+    setTimeout(() => setCopiedKey(false), 2500);
+  };
 
   // Fetch Categories
   useEffect(() => {
@@ -49,6 +114,7 @@ export default function AdminDashboard({ token, adminUser, onLogout }) {
       })
       .catch(console.error);
   }, []);
+
 
   // Fetch Metrics & Scrape Logs
   const fetchAdminData = useCallback(async () => {
@@ -105,15 +171,18 @@ export default function AdminDashboard({ token, adminUser, onLogout }) {
 
   useEffect(() => {
     fetchAdminData();
+    fetchApiKey();
     const interval = setInterval(fetchAdminData, 4000);
     return () => clearInterval(interval);
-  }, [fetchAdminData]);
+  }, [fetchAdminData, fetchApiKey]);
 
   useEffect(() => {
     if (activeTab === 'data') {
       fetchListings();
+    } else if (activeTab === 'apikey') {
+      fetchApiKey();
     }
-  }, [activeTab, fetchListings]);
+  }, [activeTab, fetchListings, fetchApiKey]);
 
   // Trigger Manual Scrape
   const handleTriggerScrape = async () => {
@@ -190,6 +259,12 @@ export default function AdminDashboard({ token, adminUser, onLogout }) {
             >
               <Database size={16} /> All Database Data ({totalListings})
             </button>
+            <button
+              className={`tab-btn ${activeTab === 'apikey' ? 'active' : ''}`}
+              onClick={() => setActiveTab('apikey')}
+            >
+              <Key size={16} /> API Key & Export Docs
+            </button>
           </div>
 
           <button className="btn btn-secondary logout-btn" onClick={onLogout}>
@@ -197,6 +272,7 @@ export default function AdminDashboard({ token, adminUser, onLogout }) {
           </button>
         </div>
       </div>
+
 
       {activeTab === 'logs' ? (
         <>
@@ -493,8 +569,9 @@ export default function AdminDashboard({ token, adminUser, onLogout }) {
             )}
           </div>
         </>
-      ) : (
+      ) : activeTab === 'data' ? (
         /* Data Inspection Tab */
+
         <div className="admin-data-section glass-panel">
           <div className="data-controls">
             <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', width: '100%' }}>
@@ -572,7 +649,288 @@ export default function AdminDashboard({ token, adminUser, onLogout }) {
             </div>
           )}
         </div>
+      ) : (
+        /* API Key & Integration Docs Tab */
+        <div className="api-key-section">
+          {/* API Key Management Box */}
+          <div className="api-key-box glass-panel">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
+              <div>
+                <h3 style={{ fontSize: '1.25rem', marginBottom: '0.3rem', display: 'flex', alignItems: 'center', gap: '0.6rem', color: '#f8fafc' }}>
+                  <Key size={22} color="#38bdf8" /> API Key Authentication Management
+                </h3>
+                <p style={{ color: '#94a3b8', fontSize: '0.875rem', margin: 0, maxWidth: '720px' }}>
+                  Manage the single active system API key used to export all jobs and internships data into JSON format for external platforms and services.
+                </p>
+              </div>
+              <span className="status-pill success" style={{ padding: '0.35rem 0.8rem', fontSize: '0.8rem' }}>
+                <CheckCircle2 size={14} /> Single Key Enforced
+              </span>
+            </div>
+
+            <div style={{ marginTop: '1.5rem', background: 'rgba(15, 23, 42, 0.5)', padding: '1.25rem', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+              <label style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '0.5rem' }}>
+                Active System API Key
+              </label>
+              
+              <div className="api-key-display">
+                <div className="api-key-input-wrapper">
+                  <input
+                    type={showKey ? 'text' : 'password'}
+                    readOnly
+                    value={apiKeyInfo?.key || 'Fetching API Key...'}
+                    className="api-key-input"
+                  />
+                  <button
+                    type="button"
+                    className="key-toggle-btn"
+                    onClick={() => setShowKey(!showKey)}
+                    title={showKey ? 'Hide API Key' : 'Show API Key'}
+                  >
+                    {showKey ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+
+                <button
+                  className="btn btn-secondary"
+                  onClick={handleCopyKey}
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1.25rem' }}
+                >
+                  {copiedKey ? <Check size={18} color="#34d399" /> : <Copy size={18} />}
+                  {copiedKey ? 'Copied!' : 'Copy Key'}
+                </button>
+
+                <button
+                  className="btn"
+                  onClick={handleRegenerateKey}
+                  disabled={isRegeneratingKey}
+                  style={{
+                    background: 'rgba(239, 68, 68, 0.15)',
+                    border: '1px solid rgba(239, 68, 68, 0.3)',
+                    color: '#f87171',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    padding: '0.75rem 1.25rem',
+                    fontWeight: 600
+                  }}
+                >
+                  {isRegeneratingKey ? <RotateCw size={18} className="spin" /> : <RefreshCw size={18} />}
+                  {isRegeneratingKey ? 'Regenerating...' : 'Regenerate API Key'}
+                </button>
+              </div>
+
+              <div className="key-meta-grid">
+                <div className="key-meta-item">
+                  <span style={{ color: '#64748b' }}>Status:</span>
+                  <strong style={{ color: '#34d399' }}>{apiKeyInfo?.status?.toUpperCase() || 'ACTIVE'}</strong>
+                </div>
+                <div className="key-meta-item">
+                  <span style={{ color: '#64748b' }}>Created:</span>
+                  <strong style={{ color: '#e2e8f0' }}>{formatDate(apiKeyInfo?.created_at)}</strong>
+                </div>
+                <div className="key-meta-item">
+                  <span style={{ color: '#64748b' }}>Last Used:</span>
+                  <strong style={{ color: '#e2e8f0' }}>{formatDate(apiKeyInfo?.last_used_at)}</strong>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ marginTop: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.825rem', color: '#fbbf24', background: 'rgba(251, 191, 36, 0.08)', padding: '0.75rem 1rem', borderRadius: '8px', border: '1px solid rgba(251, 191, 36, 0.2)' }}>
+              <AlertTriangle size={16} style={{ flexShrink: 0 }} />
+              <span>
+                <strong>Key Rotation Security Note:</strong> Only one API key can be active at a time. Click "Regenerate API Key" to revoke the old key and issue a brand new key immediately.
+              </span>
+            </div>
+          </div>
+
+          {/* Documentation & Integration Box */}
+          <div className="api-key-box glass-panel">
+            <h3 style={{ fontSize: '1.25rem', marginBottom: '0.3rem', display: 'flex', alignItems: 'center', gap: '0.6rem', color: '#f8fafc' }}>
+              <Code size={22} color="#38bdf8" /> Data Export Endpoint Documentation
+            </h3>
+            <p style={{ color: '#94a3b8', fontSize: '0.875rem', marginBottom: '1.25rem' }}>
+              Use this endpoint to export all jobs and internships from MongoDB in raw JSON format to feed into external dashboards, mobile apps, or analytics engines.
+            </p>
+
+            <div className="endpoint-banner">
+              <div>
+                <span style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: '#94a3b8', fontWeight: 700, display: 'block', marginBottom: '0.2rem' }}>
+                  Target POST URL (No Limit / Sends All Data)
+                </span>
+                <code className="endpoint-url">
+                  POST {typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3005'}/api/v1/export/data
+                </code>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <span className="source-tag" style={{ background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8' }}>
+                  HTTP POST / GET
+                </span>
+                <span className="source-tag" style={{ background: 'rgba(52, 211, 153, 0.15)', color: '#34d399' }}>
+                  JSON Format
+                </span>
+              </div>
+            </div>
+
+            {/* Code Snippets Section */}
+            <div style={{ marginTop: '1.5rem' }}>
+              <div className="code-tabs">
+                <button
+                  className={`code-tab-btn ${activeCodeLang === 'curl' ? 'active' : ''}`}
+                  onClick={() => setActiveCodeLang('curl')}
+                >
+                  <Terminal size={14} style={{ display: 'inline', marginRight: '0.4rem' }} /> cURL
+                </button>
+                <button
+                  className={`code-tab-btn ${activeCodeLang === 'python' ? 'active' : ''}`}
+                  onClick={() => setActiveCodeLang('python')}
+                >
+                  Python (requests)
+                </button>
+                <button
+                  className={`code-tab-btn ${activeCodeLang === 'js' ? 'active' : ''}`}
+                  onClick={() => setActiveCodeLang('js')}
+                >
+                  JavaScript / Node.js
+                </button>
+                <button
+                  className={`code-tab-btn ${activeCodeLang === 'php' ? 'active' : ''}`}
+                  onClick={() => setActiveCodeLang('php')}
+                >
+                  PHP (cURL)
+                </button>
+              </div>
+
+              <div className="code-block-container">
+                <button
+                  className="code-copy-btn"
+                  onClick={() => {
+                    const currentOrigin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3005';
+                    const exportUrl = `${currentOrigin}/api/v1/export/data`;
+                    const currentKey = apiKeyInfo?.key || 'ik_live_YOUR_API_KEY_HERE';
+                    const snippets = {
+                      curl: `curl -X POST "${exportUrl}" \\\n  -H "x-api-key: ${currentKey}" \\\n  -H "Content-Type: application/json"`,
+                      python: `import requests\n\nurl = "${exportUrl}"\nheaders = {\n    "x-api-key": "${currentKey}",\n    "Content-Type": "application/json"\n}\n\nresponse = requests.post(url, headers=headers)\ndata = response.json()\n\nprint(f"Total Listings: {data['total_count']}")\nprint(f"Jobs: {data['counts']['jobs']}, Internships: {data['counts']['internships']}")\n\nfor job in data['data']['jobs']:\n    print(job['title'], "-", job['company'])`,
+                      js: `// Fetch all jobs & internships in Node.js or Browser\nconst response = await fetch("${exportUrl}", {\n  method: "POST",\n  headers: {\n    "x-api-key": "${currentKey}",\n    "Content-Type": "application/json"\n  }\n});\n\nconst result = await response.json();\nconsole.log(\`Retrieved \${result.total_count} total listings!\`);\nconsole.log("Jobs:", result.data.jobs);\nconsole.log("Internships:", result.data.internships);`,
+                      php: `<?php\n$url = "${exportUrl}";\n$apiKey = "${currentKey}";\n\n$ch = curl_init($url);\ncurl_setopt($ch, CURLOPT_RETURNTRANSFER, true);\ncurl_setopt($ch, CURLOPT_POST, true);\ncurl_setopt($ch, CURLOPT_HTTPHEADER, [\n    "x-api-key: " . $apiKey,\n    "Content-Type: application/json"\n]);\n\n$response = curl_exec($ch);\ncurl_close($ch);\n\n$data = json_decode($response, true);\nprint_r($data);\n?>`
+                    };
+                    navigator.clipboard.writeText(snippets[activeCodeLang]);
+                    setCopiedSnippet(true);
+                    setTimeout(() => setCopiedSnippet(false), 2500);
+                  }}
+                >
+                  {copiedSnippet ? <Check size={14} color="#34d399" /> : <Copy size={14} />}
+                  {copiedSnippet ? 'Copied Snippet!' : 'Copy Code'}
+                </button>
+
+                <pre className="code-block">
+                  {(() => {
+                    const currentOrigin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3005';
+                    const exportUrl = `${currentOrigin}/api/v1/export/data`;
+                    const currentKey = apiKeyInfo?.key || 'ik_live_YOUR_API_KEY_HERE';
+                    const snippets = {
+                      curl: `curl -X POST "${exportUrl}" \\\n  -H "x-api-key: ${currentKey}" \\\n  -H "Content-Type: application/json"`,
+                      python: `import requests\n\nurl = "${exportUrl}"\nheaders = {\n    "x-api-key": "${currentKey}",\n    "Content-Type": "application/json"\n}\n\nresponse = requests.post(url, headers=headers)\ndata = response.json()\n\nprint(f"Total Listings: {data['total_count']}")\nprint(f"Jobs: {data['counts']['jobs']}, Internships: {data['counts']['internships']}")\n\nfor job in data['data']['jobs']:\n    print(job['title'], "-", job['company'])`,
+                      js: `// Fetch all jobs & internships in Node.js or Browser\nconst response = await fetch("${exportUrl}", {\n  method: "POST",\n  headers: {\n    "x-api-key": "${currentKey}",\n    "Content-Type": "application/json"\n  }\n});\n\nconst result = await response.json();\nconsole.log(\`Retrieved \${result.total_count} total listings!\`);\nconsole.log("Jobs:", result.data.jobs);\nconsole.log("Internships:", result.data.internships);`,
+                      php: `<?php\n$url = "${exportUrl}";\n$apiKey = "${currentKey}";\n\n$ch = curl_init($url);\ncurl_setopt($ch, CURLOPT_RETURNTRANSFER, true);\ncurl_setopt($ch, CURLOPT_POST, true);\ncurl_setopt($ch, CURLOPT_HTTPHEADER, [\n    "x-api-key: " . $apiKey,\n    "Content-Type: application/json"\n]);\n\n$response = curl_exec($ch);\ncurl_close($ch);\n\n$data = json_decode($response, true);\nprint_r($data);\n?>`
+                    };
+                    return snippets[activeCodeLang];
+                  })()}
+                </pre>
+              </div>
+            </div>
+
+            {/* Expected JSON Structure */}
+            <div style={{ marginTop: '1.5rem' }}>
+              <h4 style={{ fontSize: '0.95rem', color: '#e2e8f0', marginBottom: '0.75rem', fontWeight: 700 }}>
+                Sample JSON Response Schema
+              </h4>
+              <div className="code-block-container" style={{ background: '#070a12' }}>
+                <pre className="code-block" style={{ color: '#38bdf8' }}>
+{`{
+  "success": true,
+  "timestamp": "2026-08-08T13:30:00.000Z",
+  "source": "all",
+  "total_count": 1250,
+  "counts": {
+    "jobs": 750,
+    "internships": 500
+  },
+  "data": {
+    "jobs": [
+      {
+        "job_id": "3208202",
+        "title": "Full Stack Software Engineer",
+        "company": "Tech Solutions",
+        "location": "Remote",
+        "url": "https://internshala.com/job/detail/...",
+        "logo": "https://internshala.com/static/images/...",
+
+        // Pay is two separate fields, both display strings
+        "stipend": "₹ 4,000 - 15,000 /month",
+        "salary": "₹ 2,40,000",
+        "annual_ctc": "₹ 2,40,000 /year",
+        "salary_detail": "Probation: Duration: ...",
+
+        "description": "Key responsibilities: 1. Build and ship ...",
+        "company_description": "Tech Solutions is a ...",
+        "skills": "React Node.js MongoDB",
+        "perks": "5 days a week Health Insurance",
+        "who_can_apply": "Only those candidates can apply who: ...",
+        "certifications": "Earn certifications in these skills ...",
+        "hiring_activity": "Activity on Internshala Hiring since ...",
+        "additional_information": "Stipend Structure: Fixed pay: ...",
+
+        "duration": "3 Months",
+        "experience": "1 year(s)",
+        "openings": "2",
+        "start_date": "Immediately",
+        "apply_by": "13 Aug' 26",
+        "posted": "2 weeks ago",
+        "labels": "Be an early applicant",
+        "part_time": false,
+        "work_from_home": false,
+        "actively_hiring": true,
+
+        // Parsed from the page's JSON-LD block
+        "ld_company": "Tech Solutions",
+        "ld_description": "About the job: ...",
+        "ld_employment_type": "FULL_TIME",
+        "ld_location": "IN Jaipur Rajasthan",
+        "ld_date_posted": "2026-07-14",
+        "ld_valid_through": "2026-08-13 23:59:59",
+        "ld_salary": "240000",
+        "ld_salary_unit": "YEAR",
+
+        "source": "jobs",
+        "employment_type": "job",
+        "status": "ok",
+        "detail_title": "Full Stack Software Engineer",
+        "company_location": "Thane Website",
+        "scraped_at": "2026-08-04T00:10:14+05:30",
+        "scraper_version": "1.1.0",
+        "first_seen_at": "2026-08-03T18:40:19.867Z",
+        "updated_at": "2026-08-04T12:12:56.749Z"
+      }
+    ],
+    "internships": [
+      // Same field set, with "source": "internships"
+      // and "employment_type": "internship"
+    ]
+  }
+}
+
+// Every field above is returned except _id, ld_json and
+// sections_json. Detail fields (description, skills, perks,
+// who_can_apply, the ld_* group ...) are absent on listings
+// whose detail page was never fetched — check before use.`}
+                </pre>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
+
 
       {selectedItem && (
         <DetailModal item={selectedItem} onClose={() => setSelectedItem(null)} />

@@ -17,17 +17,38 @@ if (!process.env.JWT_SECRET) {
 
 let mongoClient = null;
 let db = null;
+let connecting = null;
 
 /**
  * Connect to MongoDB and seed default admin user
  */
 async function getDb() {
-  if (!mongoClient) {
-    mongoClient = new MongoClient(MONGO_URI, { serverSelectionTimeoutMS: 3000 });
-    await mongoClient.connect();
-    db = mongoClient.db(DB_NAME);
-    await seedAdminUser(db);
+  if (db) {
+    return db;
   }
+  // The dashboard fires several requests at once on load; without this guard
+  // each one would open its own client.
+  if (!connecting) {
+    connecting = connectToMongo().finally(() => { connecting = null; });
+  }
+  return connecting;
+}
+
+async function connectToMongo() {
+  const client = new MongoClient(MONGO_URI, { serverSelectionTimeoutMS: 3000 });
+  try {
+    await client.connect();
+  } catch (err) {
+    // Never keep a client that failed to connect: a cached one makes every
+    // later request return a null db, which surfaces as a confusing
+    // "cannot read properties of null" instead of the real connection error.
+    await client.close().catch(() => {});
+    throw err;
+  }
+
+  mongoClient = client;
+  db = client.db(DB_NAME);
+  await seedAdminUser(db);
   return db;
 }
 
@@ -92,9 +113,122 @@ function requireAdmin(req, res, next) {
   }
 }
 
+/**
+ * Generate a new API key string
+ */
+function generateApiKeyString() {
+  return 'ik_live_' + crypto.randomBytes(24).toString('hex');
+}
+
+/**
+ * Get or initialize the single active API key document
+ */
+async function getOrGenerateApiKey() {
+  const database = await getDb();
+  const apiKeysColl = database.collection('api_keys');
+
+  let activeKeyDoc = await apiKeysColl.findOne({ status: 'active' });
+  if (!activeKeyDoc) {
+    const newKey = generateApiKeyString();
+    activeKeyDoc = {
+      key: newKey,
+      status: 'active',
+      created_at: new Date(),
+      last_used_at: null,
+      created_by: 'system'
+    };
+    await apiKeysColl.insertOne(activeKeyDoc);
+  }
+  return activeKeyDoc;
+}
+
+/**
+ * Regenerate the single active API key. Deactivates any existing keys.
+ */
+async function regenerateApiKey(createdBy = 'admin') {
+  const database = await getDb();
+  const apiKeysColl = database.collection('api_keys');
+
+  await apiKeysColl.updateMany(
+    { status: 'active' },
+    { $set: { status: 'revoked', revoked_at: new Date() } }
+  );
+
+  const newKey = generateApiKeyString();
+  const newKeyDoc = {
+    key: newKey,
+    status: 'active',
+    created_at: new Date(),
+    last_used_at: null,
+    created_by: createdBy
+  };
+  await apiKeysColl.insertOne(newKeyDoc);
+  return newKeyDoc;
+}
+
+/**
+ * Middleware to authenticate requests via API key
+ */
+async function requireApiKey(req, res, next) {
+  try {
+    let apiKey = req.headers['x-api-key'];
+
+    if (!apiKey && req.headers.authorization) {
+      if (req.headers.authorization.startsWith('Bearer ')) {
+        const tokenVal = req.headers.authorization.split(' ')[1];
+        if (tokenVal.startsWith('ik_live_')) {
+          apiKey = tokenVal;
+        }
+      } else if (req.headers.authorization.startsWith('ik_live_')) {
+        apiKey = req.headers.authorization;
+      }
+    }
+
+    if (!apiKey && req.query && req.query.api_key) {
+      apiKey = req.query.api_key;
+    }
+
+    if (!apiKey && req.body && req.body.api_key) {
+      apiKey = req.body.api_key;
+    }
+
+    if (!apiKey) {
+      return res.status(401).json({
+        success: false,
+        error: 'Unauthorized: API key missing. Pass key via x-api-key header, Authorization: Bearer <key>, query param ?api_key=..., or JSON body { "api_key": "..." }'
+      });
+    }
+
+    const activeDoc = await getOrGenerateApiKey();
+    
+    if (apiKey !== activeDoc.key) {
+      return res.status(401).json({
+        success: false,
+        error: 'Unauthorized: Invalid or revoked API key'
+      });
+    }
+
+    // Update last_used_at timestamp in background
+    const database = await getDb();
+    database.collection('api_keys').updateOne(
+      { _id: activeDoc._id },
+      { $set: { last_used_at: new Date() } }
+    ).catch(err => console.error('[API Key last_used_at update error]:', err.message));
+
+    req.apiKeyDoc = activeDoc;
+    next();
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
 module.exports = {
   getDb,
   JWT_SECRET,
   scraperState,
-  requireAdmin
+  requireAdmin,
+  getOrGenerateApiKey,
+  regenerateApiKey,
+  requireApiKey
 };
+

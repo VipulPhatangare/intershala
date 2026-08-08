@@ -1,7 +1,8 @@
 const express = require('express');
-const { getDb, scraperState } = require('../db');
+const { getDb, scraperState, requireApiKey } = require('../db');
 
 const router = express.Router();
+
 
 const PREDEFINED_CATEGORIES = [
   'Software Development',
@@ -261,4 +262,69 @@ async function handleListingDetail(req, res) {
 router.get('/listing/:source/:job_id', handleListingDetail);
 router.get('/detail/:source/:job_id', handleListingDetail);
 
+/**
+ * Bulk JSON Export API Endpoint for External Platforms
+ * POST /api/v1/export/data or POST /api/jobs/export
+ * Guarded by API Key (x-api-key, Authorization: Bearer, or query/body api_key)
+ * Returns all jobs and internships with no artificial limit
+ */
+async function handleExportAllData(req, res) {
+  try {
+    const database = await getDb();
+
+    const sourceParam = req.query.source || req.body?.source || 'all';
+    const recentHours = parseFloat(req.query.recent_hours || req.body?.recent_hours) || null;
+
+    const query = {};
+    if (recentHours && recentHours > 0) {
+      const cutoff = new Date(Date.now() - recentHours * 60 * 60 * 1000);
+      query.$or = [
+        { updated_at: { $gte: cutoff } },
+        { first_seen_at: { $gte: cutoff } }
+      ];
+    }
+
+    const projection = {
+      _id: 0,
+      ld_json: 0,
+      sections_json: 0
+    };
+
+    let jobsData = [];
+    let internshipsData = [];
+
+    if (sourceParam === 'all' || sourceParam === 'jobs') {
+      jobsData = await database.collection('jobs').find(query, { projection }).toArray();
+    }
+
+    if (sourceParam === 'all' || sourceParam === 'internships') {
+      internshipsData = await database.collection('internships').find(query, { projection }).toArray();
+    }
+
+    res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      source: sourceParam,
+      total_count: jobsData.length + internshipsData.length,
+      counts: {
+        jobs: jobsData.length,
+        internships: internshipsData.length
+      },
+      data: {
+        jobs: jobsData,
+        internships: internshipsData
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+// Support multiple route paths for flexibility
+router.post('/export', requireApiKey, handleExportAllData);
+router.get('/export', requireApiKey, handleExportAllData);
+router.post('/v1/export/data', requireApiKey, handleExportAllData);
+router.get('/v1/export/data', requireApiKey, handleExportAllData);
+
 module.exports = router;
+

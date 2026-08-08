@@ -45,8 +45,11 @@ app.get('*', (req, res, next) => {
               <li><a href="/api/jobs/stats" style="color: #38bdf8;">/api/jobs/stats</a></li>
               <li><a href="/api/jobs/listings" style="color: #38bdf8;">/api/jobs/listings</a></li>
               <li><a href="/api/jobs/categories" style="color: #38bdf8;">/api/jobs/categories</a></li>
+              <li><a href="/api/v1/export/data" style="color: #38bdf8;">/api/v1/export/data (POST/GET - API Key Protected)</a></li>
+              <li><a href="/api/admin/api-key" style="color: #38bdf8;">/api/admin/api-key (Admin Token Protected)</a></li>
               <li><a href="/api/admin/scrape-metrics" style="color: #38bdf8;">/api/admin/scrape-metrics</a></li>
               <li><a href="/api/admin/scrape-logs" style="color: #38bdf8;">/api/admin/scrape-logs</a></li>
+
             </ul>
           </body>
         </html>

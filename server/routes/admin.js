@@ -4,7 +4,7 @@ const { spawn } = require('child_process');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { getDb, JWT_SECRET, scraperState, requireAdmin } = require('../db');
+const { getDb, JWT_SECRET, scraperState, requireAdmin, getOrGenerateApiKey, regenerateApiKey } = require('../db');
 
 const router = express.Router();
 
@@ -73,6 +73,57 @@ router.get('/verify', requireAdmin, (req, res) => {
 router.post('/logout', (req, res) => {
   res.json({ success: true, message: 'Logged out successfully' });
 });
+
+/* ==========================================================================
+   ADMIN API KEY MANAGEMENT ENDPOINTS
+   ========================================================================== */
+
+/**
+ * GET /api/admin/api-key
+ * Get current active API key metadata
+ */
+router.get('/api-key', requireAdmin, async (req, res) => {
+  try {
+    const keyDoc = await getOrGenerateApiKey();
+    res.json({
+      success: true,
+      apiKey: {
+        key: keyDoc.key,
+        status: keyDoc.status,
+        created_at: keyDoc.created_at,
+        last_used_at: keyDoc.last_used_at,
+        created_by: keyDoc.created_by
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/admin/api-key/regenerate
+ * Regenerate API key (invalidates previous active key)
+ */
+router.post('/api-key/regenerate', requireAdmin, async (req, res) => {
+  try {
+    const adminEmail = req.user?.email || 'admin';
+    const newKeyDoc = await regenerateApiKey(adminEmail);
+    res.json({
+      success: true,
+      message: 'API Key successfully regenerated! Old key is now revoked.',
+      apiKey: {
+        key: newKeyDoc.key,
+        status: newKeyDoc.status,
+        created_at: newKeyDoc.created_at,
+        last_used_at: newKeyDoc.last_used_at,
+        created_by: newKeyDoc.created_by
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 
 
 /* ==========================================================================
