@@ -49,7 +49,23 @@ async function connectToMongo() {
   mongoClient = client;
   db = client.db(DB_NAME);
   await seedAdminUser(db);
+  await ensureExportIndexes(db);
   return db;
+}
+
+/**
+ * The time-window export filters on updated_at / first_seen_at. Without these
+ * indexes every call scans both collections end to end.
+ */
+async function ensureExportIndexes(database) {
+  for (const name of ['jobs', 'internships']) {
+    try {
+      await database.collection(name).createIndex({ updated_at: -1 });
+      await database.collection(name).createIndex({ first_seen_at: -1 });
+    } catch (err) {
+      console.error(`[Index ${name}]:`, err.message);
+    }
+  }
 }
 
 /**

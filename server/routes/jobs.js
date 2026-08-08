@@ -262,62 +262,236 @@ async function handleListingDetail(req, res) {
 router.get('/listing/:source/:job_id', handleListingDetail);
 router.get('/detail/:source/:job_id', handleListingDetail);
 
+/* ==========================================================================
+   Bulk JSON Export API for External Platforms
+   All export routes are guarded by requireApiKey and apply no row cap:
+   ask for more than exists and you simply get everything that exists.
+   ========================================================================== */
+
+// ld_json and sections_json are raw scraper payloads that duplicate fields
+// already returned individually — dropping them roughly halves the response.
+const EXPORT_PROJECTION = { _id: 0, ld_json: 0, sections_json: 0 };
+
+const DEFAULT_RECENT_HOURS = 36;
+
+// Jobs first, then internships: the order start/end pages through.
+const EXPORT_COLLECTIONS = ['jobs', 'internships'];
+
 /**
- * Bulk JSON Export API Endpoint for External Platforms
- * POST /api/v1/export/data or POST /api/jobs/export
- * Guarded by API Key (x-api-key, Authorization: Bearer, or query/body api_key)
- * Returns all jobs and internships with no artificial limit
+ * Read a parameter from the JSON body, falling back to the query string, so
+ * the same handler serves both POST (documented) and GET (convenient).
  */
-async function handleExportAllData(req, res) {
+function readParam(req, name) {
+  const fromBody = req.body ? req.body[name] : undefined;
+  return fromBody !== undefined ? fromBody : req.query[name];
+}
+
+function isTruthy(value) {
+  return value === true || value === 'true' || value === '1' || value === 1;
+}
+
+/**
+ * Build the shared export filter. Sponsored ("external") rows are excluded by
+ * default so an export matches what /stats and /listings report.
+ */
+function buildExportQuery({ includeSponsored, since }) {
+  const conditions = [];
+
+  if (!includeSponsored) {
+    conditions.push({ status: { $ne: 'external' } });
+  }
+  if (since) {
+    // scraped_at is a string and cannot be range-queried; these two are Dates.
+    conditions.push({
+      $or: [
+        { updated_at: { $gte: since } },
+        { first_seen_at: { $gte: since } }
+      ]
+    });
+  }
+
+  return conditions.length ? { $and: conditions } : {};
+}
+
+function resolveCollections(sourceParam) {
+  const source = (sourceParam || 'all').toString().toLowerCase();
+  if (source === 'all') return { source, names: EXPORT_COLLECTIONS };
+  if (EXPORT_COLLECTIONS.includes(source)) return { source, names: [source] };
+  return null;
+}
+
+async function countPerCollection(database, names, query) {
+  const counts = {};
+  for (const name of names) {
+    counts[name] = await database.collection(name).countDocuments(query);
+  }
+  return counts;
+}
+
+function emptyBuckets() {
+  return { jobs: [], internships: [] };
+}
+
+/**
+ * POST /api/v1/export/range
+ * Body: { start, end, source, include_sponsored }
+ *
+ * start/end address jobs and internships as one continuous stream, so
+ * (end - start) always bounds the number of rows returned. Omit `end` to read
+ * to the very end. Results are sorted by _id so a window is stable across
+ * calls — without an explicit sort, paging can silently skip or repeat rows.
+ */
+async function handleExportRange(req, res) {
   try {
+    const resolved = resolveCollections(readParam(req, 'source'));
+    if (!resolved) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid source. Use 'all', 'jobs' or 'internships'."
+      });
+    }
+
+    const startRaw = readParam(req, 'start');
+    const endRaw = readParam(req, 'end');
+
+    const start = startRaw === undefined || startRaw === null || startRaw === ''
+      ? 0
+      : Number(startRaw);
+    if (!Number.isFinite(start) || start < 0) {
+      return res.status(400).json({ success: false, error: 'start must be a number >= 0' });
+    }
+
+    const hasEnd = !(endRaw === undefined || endRaw === null || endRaw === '');
+    const end = hasEnd ? Number(endRaw) : null;
+    if (hasEnd && (!Number.isFinite(end) || end <= start)) {
+      return res.status(400).json({ success: false, error: 'end must be a number greater than start' });
+    }
+
     const database = await getDb();
+    const includeSponsored = isTruthy(readParam(req, 'include_sponsored'));
+    const query = buildExportQuery({ includeSponsored });
 
-    const sourceParam = req.query.source || req.body?.source || 'all';
-    const recentHours = parseFloat(req.query.recent_hours || req.body?.recent_hours) || null;
+    const counts = await countPerCollection(database, resolved.names, query);
+    const totalAvailable = resolved.names.reduce((sum, name) => sum + counts[name], 0);
 
-    const query = {};
-    if (recentHours && recentHours > 0) {
-      const cutoff = new Date(Date.now() - recentHours * 60 * 60 * 1000);
-      query.$or = [
-        { updated_at: { $gte: cutoff } },
-        { first_seen_at: { $gte: cutoff } }
-      ];
+    const windowStart = Math.floor(start);
+    // No cap: an end past the last row just means "everything from start on".
+    const windowEnd = hasEnd ? Math.floor(end) : totalAvailable;
+
+    const data = emptyBuckets();
+    let remaining = Math.max(0, windowEnd - windowStart);
+    let collectionOffset = 0; // absolute index at which this collection starts
+
+    for (const name of resolved.names) {
+      const count = counts[name];
+      const skipWithin = Math.max(0, windowStart - collectionOffset);
+
+      if (remaining > 0 && skipWithin < count) {
+        const take = Math.min(count - skipWithin, remaining);
+        data[name] = await database.collection(name)
+          .find(query, { projection: EXPORT_PROJECTION })
+          .sort({ _id: 1 })
+          .skip(skipWithin)
+          .limit(take)
+          .toArray();
+        remaining -= data[name].length;
+      }
+
+      collectionOffset += count;
     }
 
-    const projection = {
-      _id: 0,
-      ld_json: 0,
-      sections_json: 0
-    };
-
-    let jobsData = [];
-    let internshipsData = [];
-
-    if (sourceParam === 'all' || sourceParam === 'jobs') {
-      jobsData = await database.collection('jobs').find(query, { projection }).toArray();
-    }
-
-    if (sourceParam === 'all' || sourceParam === 'internships') {
-      internshipsData = await database.collection('internships').find(query, { projection }).toArray();
-    }
+    const returned = data.jobs.length + data.internships.length;
 
     res.json({
       success: true,
       timestamp: new Date().toISOString(),
-      source: sourceParam,
-      total_count: jobsData.length + internshipsData.length,
-      counts: {
-        jobs: jobsData.length,
-        internships: internshipsData.length
-      },
-      data: {
-        jobs: jobsData,
-        internships: internshipsData
-      }
+      source: resolved.source,
+      mode: 'range',
+      window: { start: windowStart, end: hasEnd ? windowEnd : null },
+      returned,
+      total_available: totalAvailable,
+      has_more: windowStart + returned < totalAvailable,
+      next_start: windowStart + returned,
+      include_sponsored: includeSponsored,
+      counts: { jobs: data.jobs.length, internships: data.internships.length },
+      data
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
+}
+
+/**
+ * POST /api/v1/export/recent
+ * Body: { hours, source, include_sponsored }
+ *
+ * Returns every listing added or updated within the last `hours` hours.
+ * Defaults to 36. No row cap.
+ */
+async function handleExportRecent(req, res) {
+  try {
+    const resolved = resolveCollections(readParam(req, 'source'));
+    if (!resolved) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid source. Use 'all', 'jobs' or 'internships'."
+      });
+    }
+
+    // recent_hours is accepted too, so callers of the older endpoint keep working.
+    const hoursRaw = readParam(req, 'hours') !== undefined
+      ? readParam(req, 'hours')
+      : readParam(req, 'recent_hours');
+
+    const hours = hoursRaw === undefined || hoursRaw === null || hoursRaw === ''
+      ? DEFAULT_RECENT_HOURS
+      : Number(hoursRaw);
+    if (!Number.isFinite(hours) || hours <= 0) {
+      return res.status(400).json({ success: false, error: 'hours must be a number greater than 0' });
+    }
+
+    const database = await getDb();
+    const includeSponsored = isTruthy(readParam(req, 'include_sponsored'));
+    const since = new Date(Date.now() - hours * 60 * 60 * 1000);
+    const query = buildExportQuery({ includeSponsored, since });
+
+    const data = emptyBuckets();
+    for (const name of resolved.names) {
+      data[name] = await database.collection(name)
+        .find(query, { projection: EXPORT_PROJECTION })
+        .sort({ _id: 1 })
+        .toArray();
+    }
+
+    const returned = data.jobs.length + data.internships.length;
+
+    res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      source: resolved.source,
+      mode: 'recent',
+      window: { hours, since: since.toISOString() },
+      returned,
+      total_available: returned,
+      has_more: false,
+      include_sponsored: includeSponsored,
+      counts: { jobs: data.jobs.length, internships: data.internships.length },
+      data
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+/**
+ * POST /api/v1/export/data — the original "everything" export, kept so any
+ * existing integration continues to work. It is the range export with no window.
+ */
+async function handleExportAllData(req, res) {
+  if (readParam(req, 'recent_hours') !== undefined) {
+    return handleExportRecent(req, res);
+  }
+  return handleExportRange(req, res);
 }
 
 // Support multiple route paths for flexibility
@@ -325,6 +499,11 @@ router.post('/export', requireApiKey, handleExportAllData);
 router.get('/export', requireApiKey, handleExportAllData);
 router.post('/v1/export/data', requireApiKey, handleExportAllData);
 router.get('/v1/export/data', requireApiKey, handleExportAllData);
+
+router.post('/v1/export/range', requireApiKey, handleExportRange);
+router.get('/v1/export/range', requireApiKey, handleExportRange);
+router.post('/v1/export/recent', requireApiKey, handleExportRecent);
+router.get('/v1/export/recent', requireApiKey, handleExportRecent);
 
 module.exports = router;
 

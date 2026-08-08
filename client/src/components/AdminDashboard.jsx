@@ -27,6 +27,205 @@ import {
 import ListingCard from './ListingCard';
 import DetailModal from './DetailModal';
 
+const KEY_PLACEHOLDER = 'ik_live_YOUR_API_KEY_HERE';
+
+function originOrFallback() {
+  return typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3005';
+}
+
+/* Both export endpoints, described once and reused by the docs, the request
+   builder and every code snippet, so they can never drift apart. */
+const EXPORT_ENDPOINTS = {
+  range: {
+    id: 'range',
+    label: 'Range (start / end)',
+    path: '/api/v1/export/range',
+    tagline: 'Pull the dataset in windows, or all of it at once.',
+    summary:
+      'start and end address jobs and internships as one continuous stream, so (end - start) is the most rows you can get back. There is no server-side cap: ask for 100000 rows when 50000 exist and you receive all 50000. Omit end to read to the very end.',
+    sampleBody: { start: 0, end: 1000, source: 'all' },
+    params: [
+      ['start', 'number', '0', '0-based offset, inclusive.'],
+      ['end', 'number', 'end of data', 'Exclusive upper bound. Omit for everything from start on.'],
+      ['source', 'string', '"all"', '"all", "jobs" or "internships".'],
+      ['include_sponsored', 'boolean', 'false', 'Include sponsored ("external") listings, hidden by default.']
+    ]
+  },
+  recent: {
+    id: 'recent',
+    label: 'Recent (hours)',
+    path: '/api/v1/export/recent',
+    tagline: 'Everything added or updated in a recent time window.',
+    summary:
+      'Returns every listing whose updated_at or first_seen_at falls within the last N hours. Defaults to 36 hours and has no row cap, so it is the endpoint to poll on a schedule to keep an external platform in sync.',
+    sampleBody: { hours: 36, source: 'all' },
+    params: [
+      ['hours', 'number', '36', 'Size of the look-back window in hours. Accepts fractions.'],
+      ['source', 'string', '"all"', '"all", "jobs" or "internships".'],
+      ['include_sponsored', 'boolean', 'false', 'Include sponsored ("external") listings, hidden by default.']
+    ]
+  }
+};
+
+/**
+ * Build the four integration snippets for an endpoint. Kept as one function so
+ * the copy button and the rendered block can never show different code.
+ */
+function buildSnippets(endpoint, apiKey) {
+  const url = `${originOrFallback()}${endpoint.path}`;
+  const key = apiKey || KEY_PLACEHOLDER;
+  const body = JSON.stringify(endpoint.sampleBody);
+  const bodyPretty = JSON.stringify(endpoint.sampleBody, null, 4);
+  const pyBody = bodyPretty.replace(/"([a-z_]+)":/g, '"$1":');
+
+  return {
+    curl: `curl -X POST "${url}" \\
+  -H "x-api-key: ${key}" \\
+  -H "Content-Type: application/json" \\
+  -d '${body}'`,
+
+    python: `import requests
+
+url = "${url}"
+headers = {
+    "x-api-key": "${key}",
+    "Content-Type": "application/json"
+}
+payload = ${pyBody}
+
+response = requests.post(url, headers=headers, json=payload)
+data = response.json()
+
+print(f"Returned: {data['returned']} of {data['total_available']}")
+for job in data["data"]["jobs"]:
+    print(job["title"], "-", job["company"])`,
+
+    js: `const response = await fetch("${url}", {
+  method: "POST",
+  headers: {
+    "x-api-key": "${key}",
+    "Content-Type": "application/json"
+  },
+  body: JSON.stringify(${bodyPretty})
+});
+
+const result = await response.json();
+console.log(\`Returned \${result.returned} of \${result.total_available}\`);
+console.log("Jobs:", result.data.jobs);
+console.log("Internships:", result.data.internships);`,
+
+    php: `<?php
+$ch = curl_init("${url}");
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_POST, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, [
+    "x-api-key: ${key}",
+    "Content-Type: application/json"
+]);
+curl_setopt($ch, CURLOPT_POSTFIELDS, '${body}');
+
+$data = json_decode(curl_exec($ch), true);
+curl_close($ch);
+
+echo "Returned: " . $data["returned"] . " of " . $data["total_available"];
+?>`
+  };
+}
+
+/* Paging loop for the range endpoint — the answer to "how do I pull
+   everything without holding it all in memory at once". */
+function buildPagingSnippet(apiKey) {
+  const url = `${originOrFallback()}${EXPORT_ENDPOINTS.range.path}`;
+  return `import requests
+
+url = "${url}"
+headers = {"x-api-key": "${apiKey || KEY_PLACEHOLDER}"}
+
+start, page_size, all_rows = 0, 2000, []
+while True:
+    r = requests.post(url, headers=headers,
+                      json={"start": start, "end": start + page_size}).json()
+    all_rows += r["data"]["jobs"] + r["data"]["internships"]
+    if not r["has_more"]:
+        break
+    start = r["next_start"]
+
+print(f"Pulled {len(all_rows)} listings")`;
+}
+
+const SAMPLE_RESPONSE = `{
+  "success": true,
+  "timestamp": "2026-08-08T13:30:00.000Z",
+  "source": "all",
+  "mode": "range",
+  "window": { "start": 0, "end": 1000 },
+  "returned": 1000,
+  "total_available": 10083,
+  "has_more": true,
+  "next_start": 1000,
+  "include_sponsored": false,
+  "counts": { "jobs": 1000, "internships": 0 },
+  "data": {
+    "jobs": [
+      {
+        "job_id": "3208202",
+        "title": "Senior Sales Executive",
+        "company": "SIMROL INNOVATIVE PRODUCTS PRIVATE LIMITED",
+        "location": "Jaipur",
+        "url": "https://internshala.com/job/detail/...",
+        "logo": "https://internshala.com/static/images/...",
+
+        "stipend": "₹ 4,000 - 15,000 /month",
+        "salary": "₹ 2,40,000",
+        "annual_ctc": "₹ 2,40,000 /year",
+        "salary_detail": "Probation: Duration: ...",
+
+        "description": "Key responsibilities: 1. Visit potential customers ...",
+        "company_description": "Simrol innovative products is ...",
+        "skills": "Effective Communication Negotiation",
+        "perks": "5 days a week Health Insurance",
+        "who_can_apply": "Only those candidates can apply who: ...",
+        "certifications": "Earn certifications in these skills ...",
+        "hiring_activity": "Activity on Internshala Hiring since July 2026 ...",
+        "additional_information": "Stipend Structure: Fixed pay: ...",
+
+        "duration": "3 Months",
+        "experience": "1 year(s)",
+        "openings": "2",
+        "start_date": "Immediately",
+        "apply_by": "13 Aug' 26",
+        "posted": "2 weeks ago",
+        "labels": "Be an early applicant",
+        "part_time": false,
+        "work_from_home": false,
+        "actively_hiring": true,
+
+        "ld_company": "SIMROL INNOVATIVE PRODUCTS PRIVATE LIMITED",
+        "ld_description": "About the job: ...",
+        "ld_employment_type": "FULL_TIME",
+        "ld_location": "IN Jaipur Rajasthan",
+        "ld_date_posted": "2026-07-14",
+        "ld_valid_through": "2026-08-13 23:59:59",
+        "ld_salary": "240000",
+        "ld_salary_unit": "YEAR",
+
+        "source": "jobs",
+        "employment_type": "job",
+        "status": "ok",
+        "detail_title": "Senior Sales Executive",
+        "company_location": "Thane Website",
+        "scraped_at": "2026-08-04T00:10:14+05:30",
+        "scraper_version": "1.1.0",
+        "first_seen_at": "2026-08-03T18:40:19.867Z",
+        "updated_at": "2026-08-04T12:12:56.749Z"
+      }
+    ],
+    "internships": [
+      // Identical field set, with "source": "internships"
+      // and "employment_type": "internship"
+    ]
+  }
+}`;
 
 export default function AdminDashboard({ token, adminUser, onLogout }) {
   const [metrics, setMetrics] = useState(null);
@@ -55,8 +254,12 @@ export default function AdminDashboard({ token, adminUser, onLogout }) {
   const [showKey, setShowKey] = useState(false);
   const [copiedKey, setCopiedKey] = useState(false);
   const [copiedSnippet, setCopiedSnippet] = useState(false);
+  const [copiedUrl, setCopiedUrl] = useState(false);
+  const [copiedSchema, setCopiedSchema] = useState(false);
+  const [copiedPaging, setCopiedPaging] = useState(false);
   const [isRegeneratingKey, setIsRegeneratingKey] = useState(false);
   const [activeCodeLang, setActiveCodeLang] = useState('curl');
+  const [activeEndpoint, setActiveEndpoint] = useState('range'); // 'range' | 'recent'
 
   // Fetch Active API Key
   const fetchApiKey = useCallback(async () => {
@@ -104,6 +307,16 @@ export default function AdminDashboard({ token, adminUser, onLogout }) {
     setCopiedKey(true);
     setTimeout(() => setCopiedKey(false), 2500);
   };
+
+  const copyText = (text, setFlag) => {
+    navigator.clipboard.writeText(text);
+    setFlag(true);
+    setTimeout(() => setFlag(false), 2500);
+  };
+
+  const endpoint = EXPORT_ENDPOINTS[activeEndpoint];
+  const endpointUrl = `${originOrFallback()}${endpoint.path}`;
+  const snippets = buildSnippets(endpoint, apiKeyInfo?.key);
 
   // Fetch Categories
   useEffect(() => {
@@ -753,23 +966,79 @@ export default function AdminDashboard({ token, adminUser, onLogout }) {
               Use this endpoint to export all jobs and internships from MongoDB in raw JSON format to feed into external dashboards, mobile apps, or analytics engines.
             </p>
 
+            <div className="endpoint-switch">
+              {Object.values(EXPORT_ENDPOINTS).map((ep) => (
+                <button
+                  key={ep.id}
+                  className={`endpoint-switch-btn ${activeEndpoint === ep.id ? 'active' : ''}`}
+                  onClick={() => setActiveEndpoint(ep.id)}
+                >
+                  <strong>{ep.label}</strong>
+                  <span>{ep.tagline}</span>
+                </button>
+              ))}
+            </div>
+
             <div className="endpoint-banner">
-              <div>
+              <div style={{ minWidth: 0 }}>
                 <span style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: '#94a3b8', fontWeight: 700, display: 'block', marginBottom: '0.2rem' }}>
                   Target POST URL (No Limit / Sends All Data)
                 </span>
                 <code className="endpoint-url">
-                  POST {typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3005'}/api/v1/export/data
+                  POST {endpointUrl}
                 </code>
               </div>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
                 <span className="source-tag" style={{ background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8' }}>
                   HTTP POST / GET
                 </span>
                 <span className="source-tag" style={{ background: 'rgba(52, 211, 153, 0.15)', color: '#34d399' }}>
                   JSON Format
                 </span>
+                <button
+                  className="inline-copy-btn"
+                  onClick={() => copyText(endpointUrl, setCopiedUrl)}
+                  title="Copy endpoint URL"
+                >
+                  {copiedUrl ? <Check size={14} color="#34d399" /> : <Copy size={14} />}
+                  {copiedUrl ? 'Copied!' : 'Copy URL'}
+                </button>
               </div>
+            </div>
+
+            <p style={{ color: '#94a3b8', fontSize: '0.85rem', lineHeight: 1.65, marginTop: '1rem' }}>
+              {endpoint.summary}
+            </p>
+
+            <div style={{ marginTop: '1.25rem' }}>
+              <h4 style={{ fontSize: '0.95rem', color: '#e2e8f0', marginBottom: '0.6rem', fontWeight: 700 }}>
+                Request Body Parameters
+              </h4>
+              <div className="param-table-wrap">
+                <table className="param-table">
+                  <thead>
+                    <tr>
+                      <th>Field</th>
+                      <th>Type</th>
+                      <th>Default</th>
+                      <th>Description</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {endpoint.params.map(([name, type, def, desc]) => (
+                      <tr key={name}>
+                        <td><code>{name}</code></td>
+                        <td>{type}</td>
+                        <td><code>{def}</code></td>
+                        <td>{desc}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p style={{ color: '#64748b', fontSize: '0.8rem', marginTop: '0.6rem' }}>
+                Authenticate with the <code style={{ color: '#38bdf8' }}>x-api-key</code> header. Only the single active key above is accepted &mdash; regenerating immediately revokes the previous one.
+              </p>
             </div>
 
             {/* Code Snippets Section */}
@@ -804,126 +1073,57 @@ export default function AdminDashboard({ token, adminUser, onLogout }) {
               <div className="code-block-container">
                 <button
                   className="code-copy-btn"
-                  onClick={() => {
-                    const currentOrigin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3005';
-                    const exportUrl = `${currentOrigin}/api/v1/export/data`;
-                    const currentKey = apiKeyInfo?.key || 'ik_live_YOUR_API_KEY_HERE';
-                    const snippets = {
-                      curl: `curl -X POST "${exportUrl}" \\\n  -H "x-api-key: ${currentKey}" \\\n  -H "Content-Type: application/json"`,
-                      python: `import requests\n\nurl = "${exportUrl}"\nheaders = {\n    "x-api-key": "${currentKey}",\n    "Content-Type": "application/json"\n}\n\nresponse = requests.post(url, headers=headers)\ndata = response.json()\n\nprint(f"Total Listings: {data['total_count']}")\nprint(f"Jobs: {data['counts']['jobs']}, Internships: {data['counts']['internships']}")\n\nfor job in data['data']['jobs']:\n    print(job['title'], "-", job['company'])`,
-                      js: `// Fetch all jobs & internships in Node.js or Browser\nconst response = await fetch("${exportUrl}", {\n  method: "POST",\n  headers: {\n    "x-api-key": "${currentKey}",\n    "Content-Type": "application/json"\n  }\n});\n\nconst result = await response.json();\nconsole.log(\`Retrieved \${result.total_count} total listings!\`);\nconsole.log("Jobs:", result.data.jobs);\nconsole.log("Internships:", result.data.internships);`,
-                      php: `<?php\n$url = "${exportUrl}";\n$apiKey = "${currentKey}";\n\n$ch = curl_init($url);\ncurl_setopt($ch, CURLOPT_RETURNTRANSFER, true);\ncurl_setopt($ch, CURLOPT_POST, true);\ncurl_setopt($ch, CURLOPT_HTTPHEADER, [\n    "x-api-key: " . $apiKey,\n    "Content-Type: application/json"\n]);\n\n$response = curl_exec($ch);\ncurl_close($ch);\n\n$data = json_decode($response, true);\nprint_r($data);\n?>`
-                    };
-                    navigator.clipboard.writeText(snippets[activeCodeLang]);
-                    setCopiedSnippet(true);
-                    setTimeout(() => setCopiedSnippet(false), 2500);
-                  }}
+                  onClick={() => copyText(snippets[activeCodeLang], setCopiedSnippet)}
                 >
                   {copiedSnippet ? <Check size={14} color="#34d399" /> : <Copy size={14} />}
                   {copiedSnippet ? 'Copied Snippet!' : 'Copy Code'}
                 </button>
 
                 <pre className="code-block">
-                  {(() => {
-                    const currentOrigin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3005';
-                    const exportUrl = `${currentOrigin}/api/v1/export/data`;
-                    const currentKey = apiKeyInfo?.key || 'ik_live_YOUR_API_KEY_HERE';
-                    const snippets = {
-                      curl: `curl -X POST "${exportUrl}" \\\n  -H "x-api-key: ${currentKey}" \\\n  -H "Content-Type: application/json"`,
-                      python: `import requests\n\nurl = "${exportUrl}"\nheaders = {\n    "x-api-key": "${currentKey}",\n    "Content-Type": "application/json"\n}\n\nresponse = requests.post(url, headers=headers)\ndata = response.json()\n\nprint(f"Total Listings: {data['total_count']}")\nprint(f"Jobs: {data['counts']['jobs']}, Internships: {data['counts']['internships']}")\n\nfor job in data['data']['jobs']:\n    print(job['title'], "-", job['company'])`,
-                      js: `// Fetch all jobs & internships in Node.js or Browser\nconst response = await fetch("${exportUrl}", {\n  method: "POST",\n  headers: {\n    "x-api-key": "${currentKey}",\n    "Content-Type": "application/json"\n  }\n});\n\nconst result = await response.json();\nconsole.log(\`Retrieved \${result.total_count} total listings!\`);\nconsole.log("Jobs:", result.data.jobs);\nconsole.log("Internships:", result.data.internships);`,
-                      php: `<?php\n$url = "${exportUrl}";\n$apiKey = "${currentKey}";\n\n$ch = curl_init($url);\ncurl_setopt($ch, CURLOPT_RETURNTRANSFER, true);\ncurl_setopt($ch, CURLOPT_POST, true);\ncurl_setopt($ch, CURLOPT_HTTPHEADER, [\n    "x-api-key: " . $apiKey,\n    "Content-Type: application/json"\n]);\n\n$response = curl_exec($ch);\ncurl_close($ch);\n\n$data = json_decode($response, true);\nprint_r($data);\n?>`
-                    };
-                    return snippets[activeCodeLang];
-                  })()}
+                  {snippets[activeCodeLang]}
                 </pre>
               </div>
             </div>
 
+            {activeEndpoint === 'range' && (
+              <div style={{ marginTop: '1.5rem' }}>
+                <h4 style={{ fontSize: '0.95rem', color: '#e2e8f0', marginBottom: '0.5rem', fontWeight: 700 }}>
+                  Pulling Everything In Pages
+                </h4>
+                <p style={{ color: '#94a3b8', fontSize: '0.85rem', marginBottom: '0.75rem', lineHeight: 1.6 }}>
+                  Follow <code style={{ color: '#38bdf8' }}>next_start</code> until <code style={{ color: '#38bdf8' }}>has_more</code> is false. Rows are ordered stably, so no listing is ever skipped or repeated between pages.
+                </p>
+                <div className="code-block-container">
+                  <button
+                    className="code-copy-btn"
+                    onClick={() => copyText(buildPagingSnippet(apiKeyInfo?.key), setCopiedPaging)}
+                  >
+                    {copiedPaging ? <Check size={14} color="#34d399" /> : <Copy size={14} />}
+                    {copiedPaging ? 'Copied!' : 'Copy Code'}
+                  </button>
+                  <pre className="code-block">{buildPagingSnippet(apiKeyInfo?.key)}</pre>
+                </div>
+              </div>
+            )}
+
             {/* Expected JSON Structure */}
             <div style={{ marginTop: '1.5rem' }}>
-              <h4 style={{ fontSize: '0.95rem', color: '#e2e8f0', marginBottom: '0.75rem', fontWeight: 700 }}>
+              <h4 style={{ fontSize: '0.95rem', color: '#e2e8f0', marginBottom: '0.4rem', fontWeight: 700 }}>
                 Sample JSON Response Schema
               </h4>
+              <p style={{ color: '#94a3b8', fontSize: '0.85rem', marginBottom: '0.75rem', lineHeight: 1.6 }}>
+                Every field below is returned except <code style={{ color: '#38bdf8' }}>_id</code>, <code style={{ color: '#38bdf8' }}>ld_json</code> and <code style={{ color: '#38bdf8' }}>sections_json</code>. Detail fields such as <code style={{ color: '#38bdf8' }}>description</code> are absent on listings whose detail page was never scraped, so check before use. Numbers arrive as strings.
+              </p>
               <div className="code-block-container" style={{ background: '#070a12' }}>
+                <button
+                  className="code-copy-btn"
+                  onClick={() => copyText(SAMPLE_RESPONSE, setCopiedSchema)}
+                >
+                  {copiedSchema ? <Check size={14} color="#34d399" /> : <Copy size={14} />}
+                  {copiedSchema ? 'Copied Schema!' : 'Copy Schema'}
+                </button>
                 <pre className="code-block" style={{ color: '#38bdf8' }}>
-{`{
-  "success": true,
-  "timestamp": "2026-08-08T13:30:00.000Z",
-  "source": "all",
-  "total_count": 1250,
-  "counts": {
-    "jobs": 750,
-    "internships": 500
-  },
-  "data": {
-    "jobs": [
-      {
-        "job_id": "3208202",
-        "title": "Full Stack Software Engineer",
-        "company": "Tech Solutions",
-        "location": "Remote",
-        "url": "https://internshala.com/job/detail/...",
-        "logo": "https://internshala.com/static/images/...",
-
-        // Pay is two separate fields, both display strings
-        "stipend": "₹ 4,000 - 15,000 /month",
-        "salary": "₹ 2,40,000",
-        "annual_ctc": "₹ 2,40,000 /year",
-        "salary_detail": "Probation: Duration: ...",
-
-        "description": "Key responsibilities: 1. Build and ship ...",
-        "company_description": "Tech Solutions is a ...",
-        "skills": "React Node.js MongoDB",
-        "perks": "5 days a week Health Insurance",
-        "who_can_apply": "Only those candidates can apply who: ...",
-        "certifications": "Earn certifications in these skills ...",
-        "hiring_activity": "Activity on Internshala Hiring since ...",
-        "additional_information": "Stipend Structure: Fixed pay: ...",
-
-        "duration": "3 Months",
-        "experience": "1 year(s)",
-        "openings": "2",
-        "start_date": "Immediately",
-        "apply_by": "13 Aug' 26",
-        "posted": "2 weeks ago",
-        "labels": "Be an early applicant",
-        "part_time": false,
-        "work_from_home": false,
-        "actively_hiring": true,
-
-        // Parsed from the page's JSON-LD block
-        "ld_company": "Tech Solutions",
-        "ld_description": "About the job: ...",
-        "ld_employment_type": "FULL_TIME",
-        "ld_location": "IN Jaipur Rajasthan",
-        "ld_date_posted": "2026-07-14",
-        "ld_valid_through": "2026-08-13 23:59:59",
-        "ld_salary": "240000",
-        "ld_salary_unit": "YEAR",
-
-        "source": "jobs",
-        "employment_type": "job",
-        "status": "ok",
-        "detail_title": "Full Stack Software Engineer",
-        "company_location": "Thane Website",
-        "scraped_at": "2026-08-04T00:10:14+05:30",
-        "scraper_version": "1.1.0",
-        "first_seen_at": "2026-08-03T18:40:19.867Z",
-        "updated_at": "2026-08-04T12:12:56.749Z"
-      }
-    ],
-    "internships": [
-      // Same field set, with "source": "internships"
-      // and "employment_type": "internship"
-    ]
-  }
-}
-
-// Every field above is returned except _id, ld_json and
-// sections_json. Detail fields (description, skills, perks,
-// who_can_apply, the ld_* group ...) are absent on listings
-// whose detail page was never fetched — check before use.`}
+                  {SAMPLE_RESPONSE}
                 </pre>
               </div>
             </div>
